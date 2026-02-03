@@ -67,8 +67,7 @@
 
 
 
-
-name: Build and deploy - tableau-backend
+name: Build and deploy Python app to Azure Web App - tableau-backend-app
 
 on:
   push:
@@ -81,44 +80,50 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python version
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      # Same build logic as old repo, scoped to subfolder
+      - name: Create and start virtual environment and install dependencies
         working-directory: Backend/tableau_backend1-main(prev)
         run: |
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
 
-      - name: Upload artifact
+      # Upload only this service (monorepo change)
+      - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: tableau-backend-app
+          name: tableau-backend
           path: |
             Backend/tableau_backend1-main(prev)
-            !Backend/tableau_backend1-main(prev)/antenv
+            !Backend/tableau_backend1-main(prev)/antenv/
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
 
     steps:
+      # Download to a deterministic path
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: tableau-backend-app
+          name: tableau-backend
+          path: deploy
 
       - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@v2
         with:
           app-name: tableau-backend-app
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_33124CC8D942440DA06B63AAD419D303 }}
-          package: Backend/tableau_backend1-main(prev)
+          package: deploy
