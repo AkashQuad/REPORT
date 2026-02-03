@@ -66,8 +66,7 @@
 #           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_8644250DF81949309B290575B5B82BDB }}
 
 
-
-name: Build and deploy - pbir-generator
+name: Build and deploy Python app to Azure Web App - visuals-json
 
 on:
   push:
@@ -80,44 +79,51 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python version
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      # Same build logic as old repo, just scoped to subfolder
+      - name: Create and start virtual environment and install dependencies
         working-directory: Backend/pbir_generator-main(prev)
         run: |
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
 
-      - name: Upload artifact
+      # Upload ONLY this service (monorepo change)
+      - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: pbir-generator-app
+          name: visuals-json
           path: |
             Backend/pbir_generator-main(prev)
-            !Backend/pbir_generator-main(prev)/antenv
+            !Backend/pbir_generator-main(prev)/antenv/
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
 
     steps:
+      # Download to a deterministic path
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: pbir-generator-app
+          name: visuals-json
+          path: deploy
 
       - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@v2
         with:
           app-name: visuals-json
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_8644250DF81949309B290575B5B82BDB }}
-          package: Backend/pbir_generator-main(prev)
+          package: deploy
+
