@@ -155,16 +155,15 @@ def create_workspace(request: Request, payload: dict = Body(...)):
 @router.post("/workspaces/add-any-sp")
 def add_custom_service_principal(request: Request, payload: dict = Body(...)):
     """
-    Uses Rajashekar's user token to add the static SP to the workspace.
+    Uses the logged-in User's token (Rajashekar) to add the 
+    Migration Service Principal to a workspace.
     """
+    # 1. Retrieve the user's session token
     access_token = request.session.get("access_token")
     if not access_token:
-        raise HTTPException(status_code=401, detail="User session not found. Please log in.")
+        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
 
     workspace_id = payload.get("workspace_id")
-    # We use the static ID from above instead of taking it from the payload
-    target_id = SP_CLIENT_ID 
-
     if not workspace_id:
         raise HTTPException(status_code=400, detail="workspace_id is required")
 
@@ -173,22 +172,32 @@ def add_custom_service_principal(request: Request, payload: dict = Body(...)):
         "Content-Type": "application/json"
     }
 
+    # Power BI API endpoint for workspace users
     users_url = f"{POWERBI_API}/groups/{workspace_id}/users"
 
+    # payload configuration
     add_payload = {
-        "identifier": target_id,
-        "principalType": "App",
+        "identifier": STATIC_SP_CLIENT_ID, # MUST be the Application ID
+        "principalType": "App",            # MUST be "App" for Service Principals
         "groupUserAccessRight": "Admin"
     }
 
+    print(f"DEBUG: Attempting to add SP {STATIC_SP_CLIENT_ID} to workspace {workspace_id}")
+
+    # 2. Make the request to Power BI
     response = requests.post(users_url, headers=headers, json=add_payload)
 
     if response.status_code not in (200, 201):
-        raise HTTPException(status_code=response.status_code, detail=response.text)
+        # Log the full error for debugging in Azure Log Stream
+        print(f"ERROR from Power BI: {response.status_code} - {response.text}")
+        raise HTTPException(
+            status_code=response.status_code, 
+            detail=response.json() if response.content else "Internal Power BI Error"
+        )
 
     return {
-        "status": "success", 
-        "message": f"Added SP {target_id} as Admin",
+        "status": "success",
+        "message": f"App '{STATIC_SP_CLIENT_ID}' successfully added as Admin.",
         "workspace_id": workspace_id
     }
 # -------------------------------------------
