@@ -65,64 +65,7 @@
 #           slot-name: 'Production'
 #           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_7BB57B8A1B1940AB9F06976E59B38863 }}
 
-
-# name: Build and deploy - databinding
-
-# on:
-#   push:
-#     branches:
-#       - main
-#     paths:
-#       - Backend/databindingRaju-main(prev)/**
-#   workflow_dispatch:
-
-# jobs:
-#   build:
-#     runs-on: ubuntu-latest
-
-#     steps:
-#       - uses: actions/checkout@v4
-
-#       - name: Set up Python
-#         uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.10'
-
-#       - name: Install dependencies
-#         working-directory: Backend/databindingRaju-main(prev)
-#         run: |
-#           python -m venv antenv
-#           source antenv/bin/activate
-#           pip install -r requirements.txt
-
-#       - name: Upload artifact
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: databinding-app
-#           path: |
-#             Backend/databindingRaju-main(prev)
-#             !Backend/databindingRaju-main(prev)/antenv
-
-#   deploy:
-#     runs-on: ubuntu-latest
-#     needs: build
-
-#     steps:
-#       - uses: actions/download-artifact@v4
-#         with:
-#           name: databinding-app
-
-#       - name: Deploy to Azure Web App
-#         uses: azure/webapps-deploy@v3
-#         with:
-#           app-name: databinding
-#           slot-name: Production
-#           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_7BB57B8A1B1940AB9F06976E59B38863 }}
-#           package: Backend/databindingRaju-main(prev)
-
-
-
-name: Build and deploy - databinding
+name: Build and deploy Python app to Azure Web App - databinding
 
 on:
   push:
@@ -135,39 +78,45 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python version
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      # Build exactly like the old repo, but inside subfolder
+      - name: Create and start virtual environment and install dependencies
         working-directory: Backend/databindingRaju-main(prev)
         run: |
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
 
-      - name: Upload artifact
+      # Upload ONLY this app (monorepo change)
+      - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: databinding-app
+          name: databinding
           path: |
             Backend/databindingRaju-main(prev)
-            !Backend/databindingRaju-main(prev)/antenv
+            !Backend/databindingRaju-main(prev)/antenv/
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
 
     steps:
+      # Download to a fixed path (monorepo-safe)
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: databinding-app
+          name: databinding
+          path: deploy
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
@@ -175,4 +124,4 @@ jobs:
           app-name: databinding
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_7BB57B8A1B1940AB9F06976E59B38863 }}
-          package: databinding-app
+          package: deploy
