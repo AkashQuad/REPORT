@@ -62,7 +62,7 @@ router = APIRouter()
 
 # --- CONFIGURATION ---
 # Fetches from Azure App Service Environment Variables
-SP_CLIENT_ID = os.getenv("SP_CLIENT_ID", "")
+SP_CLIENT_ID = "e2eaa87b-ee2a-4680-9982-870896175cfc"
 
 # -------------------------------------------
 # 1. GET WORKSPACES (with Reports & Datasets)
