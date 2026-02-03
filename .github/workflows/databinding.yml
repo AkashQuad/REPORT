@@ -119,6 +119,9 @@
 #           slot-name: Production
 #           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_7BB57B8A1B1940AB9F06976E59B38863 }}
 #           package: Backend/databindingRaju-main(prev)
+
+
+
 name: Build and deploy - databinding
 
 on:
@@ -161,7 +164,8 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download artifact
+        uses: actions/download-artifact@v4
         with:
           name: databinding-app
 
@@ -171,4 +175,4 @@ jobs:
           app-name: databinding
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_7BB57B8A1B1940AB9F06976E59B38863 }}
-          package: Backend/databindingRaju-main(prev)
+          package: databinding-app
