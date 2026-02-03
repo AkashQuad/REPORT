@@ -155,52 +155,42 @@ def create_workspace(request: Request, payload: dict = Body(...)):
 @router.post("/workspaces/add-any-sp")
 def add_custom_service_principal(request: Request, payload: dict = Body(...)):
     """
-    Uses the logged-in user's token (Rajashekar) to add a 
-    specific Service Principal to a workspace.
+    Uses Rajashekar's user token to add the static SP to the workspace.
     """
-    # 1. Get the user's token from the session
     access_token = request.session.get("access_token")
     if not access_token:
-        raise HTTPException(status_code=401, detail="User session expired. Please log in again.")
+        raise HTTPException(status_code=401, detail="User session not found. Please log in.")
 
     workspace_id = payload.get("workspace_id")
-    new_sp_id = payload.get("new_sp_id") # The NEW Client ID you want to add
+    # We use the static ID from above instead of taking it from the payload
+    target_id = SP_CLIENT_ID 
 
-    if not workspace_id or not new_sp_id:
-        raise HTTPException(status_code=400, detail="workspace_id and new_sp_id are required")
+    if not workspace_id:
+        raise HTTPException(status_code=400, detail="workspace_id is required")
 
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
 
-    # URL to manage users in the specific workspace
     users_url = f"{POWERBI_API}/groups/{workspace_id}/users"
 
-    # Define the new Service Principal payload
     add_payload = {
-        "identifier": new_sp_id,
+        "identifier": target_id,
         "principalType": "App",
         "groupUserAccessRight": "Admin"
     }
 
-    # 2. Execute the request as the USER (not the app)
     response = requests.post(users_url, headers=headers, json=add_payload)
 
     if response.status_code not in (200, 201):
-        # If this still returns 403, it means the Tenant Admin has 
-        # blocked even humans from adding SPs via API.
-        raise HTTPException(
-            status_code=response.status_code, 
-            detail=f"Power BI rejected the request: {response.text}"
-        )
+        raise HTTPException(status_code=response.status_code, detail=response.text)
 
     return {
-        "status": "success",
-        "message": f"Service Principal {new_sp_id} added successfully by User.",
+        "status": "success", 
+        "message": f"Added SP {target_id} as Admin",
         "workspace_id": workspace_id
     }
-
 # -------------------------------------------
 # 3. ADD SERVICE PRINCIPAL TO EXISTING WORKSPACE
 # -------------------------------------------
