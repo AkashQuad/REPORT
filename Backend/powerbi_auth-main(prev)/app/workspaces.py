@@ -164,7 +164,9 @@ def add_service_principal_to_workspace(request: Request, payload: dict = Body(..
     If not, adds it as an Admin.
     Expected payload: { "workspace_id": "UUID-HERE" }
     """
+    print(f"DEBUG: Attempting to add SP with ID: {SP_CLIENT_ID}")
     # Defensive check: Ensure SP_CLIENT_ID was actually loaded from ENV
+    
     if not SP_CLIENT_ID:
         raise HTTPException(status_code=500, detail="Server configuration error: SP_CLIENT_ID not set.")
 
