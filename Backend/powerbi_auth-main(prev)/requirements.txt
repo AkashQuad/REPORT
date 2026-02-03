@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+requests
+python-dotenv
+msal
+azure-storage-blob
+# fastapi
+# uvicorn
+# gunicorn
+# requests
+# msal
+# python-dotenv
+# azure-storage-blob
+# pandas
+# openpyxl
+
