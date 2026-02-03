@@ -65,8 +65,7 @@
 #           slot-name: 'Production'
 #           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_2352B78DB03E4F758270A531A7D5D0F1 }}
 
-
-name: Build and deploy - tableau-metadata-extractor
+name: Build and deploy Python app to Azure Web App - TablueaMetadataExtractor
 
 on:
   push:
@@ -79,44 +78,50 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python version
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      # Same build logic as old repo, scoped to subfolder
+      - name: Create and start virtual environment and install dependencies
         working-directory: Backend/tableau_metadata_extractor-main(prev)
         run: |
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
 
-      - name: Upload artifact
+      # Upload only this service (monorepo change)
+      - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: tableau-metadata-extractor-app
+          name: tableau-metadata-extractor
           path: |
             Backend/tableau_metadata_extractor-main(prev)
-            !Backend/tableau_metadata_extractor-main(prev)/antenv
+            !Backend/tableau_metadata_extractor-main(prev)/antenv/
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
 
     steps:
+      # Download to a deterministic path
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: tableau-metadata-extractor-app
+          name: tableau-metadata-extractor
+          path: deploy
 
       - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@v2
         with:
           app-name: TablueaMetadataExtractor
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_2352B78DB03E4F758270A531A7D5D0F1 }}
-          package: Backend/tableau_metadata_extractor-main(prev)
+          package: deploy
