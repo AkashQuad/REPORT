@@ -53,7 +53,7 @@
 #         "count": len(workspaces),
 #         "workspaces": workspaces
 #     }
-import os  # Fixed: Added missing import
+import os
 import requests
 from fastapi import APIRouter, Request, HTTPException, Body
 from app.config import POWERBI_API
@@ -61,67 +61,44 @@ from app.config import POWERBI_API
 router = APIRouter()
 
 # --- CONFIGURATION ---
-# Fetches from Azure App Service Environment Variables
-SP_CLIENT_ID = os.getenv("SP_CLIENT_ID", "e2eaa87b-ee2a-4680-9982-870896175cfc")
+# IMPORTANT: This must be the "Object ID" found in 'Enterprise Applications' 
+# in Azure, NOT the 'Application (client) ID'.
+SP_OBJECT_ID = os.getenv("SP_OBJECT_ID", "e2eaa87b-ee2a-4680-9982-870896175cfc")
 
-# -------------------------------------------
-# 1. GET WORKSPACES (with Reports & Datasets)
-# -------------------------------------------
 @router.get("/workspaces")
 def get_workspaces(request: Request):
     access_token = request.session.get("access_token")
     if not access_token:
         raise HTTPException(status_code=401, detail="Not logged in")
 
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
+    headers = {"Authorization": f"Bearer {access_token}"}
 
+    # Fetch groups
     ws_resp = requests.get(f"{POWERBI_API}/groups", headers=headers)
     if ws_resp.status_code != 200:
         raise HTTPException(status_code=ws_resp.status_code, detail=ws_resp.text)
 
     workspaces = ws_resp.json().get("value", [])
 
+    # Enrich workspaces with reports and datasets
     for ws in workspaces:
         workspace_id = ws["id"]
-
-        # Get Reports
-        reports_resp = requests.get(
-            f"{POWERBI_API}/groups/{workspace_id}/reports",
-            headers=headers
-        )
-        # Get Datasets
-        datasets_resp = requests.get(
-            f"{POWERBI_API}/groups/{workspace_id}/datasets",
-            headers=headers
-        )
-
-        ws["reports"] = (
-            reports_resp.json().get("value", [])
-            if reports_resp.status_code == 200
-            else []
-        )
-        ws["datasets"] = (
-            datasets_resp.json().get("value", [])
-            if datasets_resp.status_code == 200
-            else []
-        )
+        
+        # Reports
+        r_resp = requests.get(f"{POWERBI_API}/groups/{workspace_id}/reports", headers=headers)
+        ws["reports"] = r_resp.json().get("value", []) if r_resp.status_code == 200 else []
+        
+        # Datasets
+        d_resp = requests.get(f"{POWERBI_API}/groups/{workspace_id}/datasets", headers=headers)
+        ws["datasets"] = d_resp.json().get("value", []) if d_resp.status_code == 200 else []
 
     return {
         "count": len(workspaces),
         "workspaces": workspaces
     }
 
-
-# -------------------------------------------
-# 2. CREATE NEW WORKSPACE
-# -------------------------------------------
 @router.post("/workspaces")
 def create_workspace(request: Request, payload: dict = Body(...)):
-    """
-    Create a new Power BI workspace
-    """
     access_token = request.session.get("access_token")
     if not access_token:
         raise HTTPException(status_code=401, detail="Not logged in")
@@ -146,61 +123,68 @@ def create_workspace(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
     data = response.json()
-
     return {
         "message": "Workspace created successfully",
         "workspaceId": data["id"],
         "workspaceName": data["name"]
     }
 
-
-# -------------------------------------------
-# 3. ADD SERVICE PRINCIPAL TO EXISTING WORKSPACE
-# -------------------------------------------
 @router.post("/workspaces/add-sp")
 def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
+    """
+    Adds the Service Principal to the workspace.
+    Requires the user to have 'Admin' rights on the target workspace.
+    """
     access_token = request.session.get("access_token")
     workspace_id = payload.get("workspace_id")
     
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Not logged in")
+    
+    if not workspace_id:
+        raise HTTPException(status_code=400, detail="workspace_id is required")
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
 
-    # --- FORCE STEP 1: VERIFY IDENTITY EXISTENCE ---
-    # We call the Admin API to get the SP details directly. 
-    # If this fails, the issue is 100% in the Tenant Settings.
-    verify_url = f"https://api.powerbi.com/v1.0/myorg/admin/servicePrincipals/{SP_CLIENT_ID}"
-    verify_resp = requests.get(verify_url, headers=headers)
-    
-    # If the user is an admin but can't see the SP, the SP isn't in the allowed Security Group.
-    if verify_resp.status_code == 404:
-        raise HTTPException(
-            status_code=403, 
-            detail="The Service Principal is not recognized by Power BI. Ensure it is in the correct Security Group."
-        )
-
-    # --- FORCE STEP 2: THE ADDITION ---
+    # API Endpoint for adding users/principals to a workspace
     users_url = f"{POWERBI_API}/groups/{workspace_id}/users"
+    
+    # PAYLOAD: Ensure 'identifier' is the Object ID of the Service Principal
     add_payload = {
-        "identifier": SP_CLIENT_ID,
+        "identifier": SP_OBJECT_ID,
         "principalType": "App",
         "groupUserAccessRight": "Admin"
     }
 
-    # Attempt the add
+    # Execute request
     resp = requests.post(users_url, headers=headers, json=add_payload)
 
+    # 200, 201 (Created), or 204 (No Content) are all successes for this API
     if resp.status_code in (200, 201, 204):
-        return {"status": "success", "message": "SP Forcefully Added"}
+        return {"status": "success", "message": "Service Principal added to workspace"}
     
-    # --- FINAL CATCH: IF STILL 403 ---
+    # Detailed error handling
+    try:
+        error_detail = resp.json()
+    except:
+        error_detail = resp.text
+
+    # Log specific reasons for 403
     if resp.status_code == 403:
-        # This is likely the "AAD Sync" bug. To force solve this, the User 
-        # MUST have 'Tenant.ReadWrite.All' or be a Power BI Admin.
+        # Possible reasons: 
+        # 1. User calling the API isn't an Admin of the Workspace.
+        # 2. The SP_OBJECT_ID is actually a Client ID.
+        # 3. Tenant settings haven't propagated yet.
         raise HTTPException(
-            status_code=403, 
-            detail="Force-Add Failed: Power BI Service is blocking this App ID. Check Tenant Developer Settings."
+            status_code=403,
+            detail={
+                "error": "Forbidden",
+                "reason": "Ensure the current user is a Workspace Admin and SP_OBJECT_ID is correct.",
+                "ms_response": error_detail
+            }
         )
 
-    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    raise HTTPException(status_code=resp.status_code, detail=error_detail)
