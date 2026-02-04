@@ -53,7 +53,7 @@
 #         "count": len(workspaces),
 #         "workspaces": workspaces
 #     }
-import os
+import os  # Fixed: Added missing import
 import requests
 from fastapi import APIRouter, Request, HTTPException, Body
 from app.config import POWERBI_API
@@ -61,8 +61,8 @@ from app.config import POWERBI_API
 router = APIRouter()
 
 # --- CONFIGURATION ---
-# Using your confirmed Application ID statically
-STATIC_SP_CLIENT_ID = "e2eaa87b-ee2a-4680-9982-870896175cfc"
+# Fetches from Azure App Service Environment Variables
+SP_CLIENT_ID = os.getenv("SP_CLIENT_ID", "")
 
 # -------------------------------------------
 # 1. GET WORKSPACES (with Reports & Datasets)
@@ -73,7 +73,9 @@ def get_workspaces(request: Request):
     if not access_token:
         raise HTTPException(status_code=401, detail="Not logged in")
 
-    headers = {"Authorization": f"Bearer {access_token}"}
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
 
     ws_resp = requests.get(f"{POWERBI_API}/groups", headers=headers)
     if ws_resp.status_code != 200:
@@ -83,20 +85,43 @@ def get_workspaces(request: Request):
 
     for ws in workspaces:
         workspace_id = ws["id"]
-        # Fetch Reports and Datasets for each workspace
-        reports_resp = requests.get(f"{POWERBI_API}/groups/{workspace_id}/reports", headers=headers)
-        datasets_resp = requests.get(f"{POWERBI_API}/groups/{workspace_id}/datasets", headers=headers)
 
-        ws["reports"] = reports_resp.json().get("value", []) if reports_resp.status_code == 200 else []
-        ws["datasets"] = datasets_resp.json().get("value", []) if datasets_resp.status_code == 200 else []
+        # Get Reports
+        reports_resp = requests.get(
+            f"{POWERBI_API}/groups/{workspace_id}/reports",
+            headers=headers
+        )
+        # Get Datasets
+        datasets_resp = requests.get(
+            f"{POWERBI_API}/groups/{workspace_id}/datasets",
+            headers=headers
+        )
 
-    return {"count": len(workspaces), "workspaces": workspaces}
+        ws["reports"] = (
+            reports_resp.json().get("value", [])
+            if reports_resp.status_code == 200
+            else []
+        )
+        ws["datasets"] = (
+            datasets_resp.json().get("value", [])
+            if datasets_resp.status_code == 200
+            else []
+        )
+
+    return {
+        "count": len(workspaces),
+        "workspaces": workspaces
+    }
+
 
 # -------------------------------------------
 # 2. CREATE NEW WORKSPACE
 # -------------------------------------------
 @router.post("/workspaces")
 def create_workspace(request: Request, payload: dict = Body(...)):
+    """
+    Create a new Power BI workspace
+    """
     access_token = request.session.get("access_token")
     if not access_token:
         raise HTTPException(status_code=401, detail="Not logged in")
@@ -121,24 +146,31 @@ def create_workspace(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
     data = response.json()
+
     return {
         "message": "Workspace created successfully",
         "workspaceId": data["id"],
         "workspaceName": data["name"]
     }
 
+
 # -------------------------------------------
-# 3. ADD SERVICE PRINCIPAL (BYPASS ENDPOINT)
+# 3. ADD SERVICE PRINCIPAL TO EXISTING WORKSPACE
 # -------------------------------------------
-@router.post("/workspaces/add-any-sp")
-def add_custom_service_principal(request: Request, payload: dict = Body(...)):
+@router.post("/workspaces/add-sp")
+def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
     """
-    Uses the logged-in User's token (Rajashekar) to add the 
-    Migration Service Principal to a workspace.
+    Checks if a specific Service Principal exists in a workspace.
+    If not, adds it as an Admin.
+    Expected payload: { "workspace_id": "UUID-HERE" }
     """
+    # Defensive check: Ensure SP_CLIENT_ID was actually loaded from ENV
+    if not SP_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Server configuration error: SP_CLIENT_ID not set.")
+
     access_token = request.session.get("access_token")
     if not access_token:
-        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
+        raise HTTPException(status_code=401, detail="Not logged in")
 
     workspace_id = payload.get("workspace_id")
     if not workspace_id:
@@ -149,39 +181,41 @@ def add_custom_service_principal(request: Request, payload: dict = Body(...)):
         "Content-Type": "application/json"
     }
 
-    # Use the group users endpoint
+    # A. Check for existence by listing current users
     users_url = f"{POWERBI_API}/groups/{workspace_id}/users"
+    users_resp = requests.get(users_url, headers=headers)
 
-    # payload configuration using static ID
+    if users_resp.status_code != 200:
+        raise HTTPException(status_code=users_resp.status_code, detail=f"Error fetching users: {users_resp.text}")
+
+    current_users = users_resp.json().get("value", [])
+
+    # Check if our SP Client ID matches any identifier in the group
+    already_exists = any(u.get("identifier", "").lower() == SP_CLIENT_ID.lower() for u in current_users)
+
+    if already_exists:
+        return {
+            "status": "success",
+            "message": "already exist",
+            "workspace_id": workspace_id,
+            "service_principal": SP_CLIENT_ID
+        }
+
+    # B. Add the Service Principal if it doesn't exist
     add_payload = {
-        "identifier": STATIC_SP_CLIENT_ID,
-        "principalType": "App",
+        "identifier": SP_CLIENT_ID,
+        "principalType": "App",        # Required for Service Principals
         "groupUserAccessRight": "Admin"
     }
 
-    print(f"DEBUG: Adding SP {STATIC_SP_CLIENT_ID} to workspace {workspace_id}")
+    add_resp = requests.post(users_url, headers=headers, json=add_payload)
 
-    response = requests.post(users_url, headers=headers, json=add_payload)
-
-    if response.status_code not in (200, 201):
-        print(f"ERROR from Power BI: {response.status_code} - {response.text}")
-        # Return a clean error instead of a crash
-        return {
-            "status": "error",
-            "code": response.status_code,
-            "message": response.text
-        }
+    if add_resp.status_code not in (200, 201):
+        raise HTTPException(status_code=add_resp.status_code, detail=f"Failed to add SP: {add_resp.text}")
 
     return {
         "status": "success",
-        "message": "Service Principal linked successfully.",
-        "workspace_id": workspace_id
+        "message": "Service Principal added successfully",
+        "workspace_id": workspace_id,
+        "service_principal": SP_CLIENT_ID
     }
-
-# -------------------------------------------
-# 4. LEGACY ADD-SP (kept for compatibility)
-# -------------------------------------------
-@router.post("/workspaces/add-sp")
-def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
-    # Simply redirects to the new bypass logic for consistency
-    return add_custom_service_principal(request, payload)
