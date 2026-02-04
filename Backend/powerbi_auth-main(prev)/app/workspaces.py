@@ -167,44 +167,40 @@ def add_service_principal_to_workspace(request: Request, payload: dict = Body(..
         "Content-Type": "application/json"
     }
 
-    # STEP 1: FORCE IDENTITY RESOLUTION (Microsoft Graph)
-    # We hit Graph to get the Service Principal's INTERNAL Object ID.
-    # This often forces AAD to 'announce' the SP to other services.
-    graph_url = f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{SP_CLIENT_ID}'"
-    graph_resp = requests.get(graph_url, headers=headers)
+    # --- FORCE STEP 1: VERIFY IDENTITY EXISTENCE ---
+    # We call the Admin API to get the SP details directly. 
+    # If this fails, the issue is 100% in the Tenant Settings.
+    verify_url = f"https://api.powerbi.com/v1.0/myorg/admin/servicePrincipals/{SP_CLIENT_ID}"
+    verify_resp = requests.get(verify_url, headers=headers)
     
-    target_id = SP_CLIENT_ID # Default
-    if graph_resp.status_code == 200:
-        graph_data = graph_resp.json().get("value", [])
-        if graph_data:
-            # Some APIs prefer the 'id' (Object ID) over the 'appId' (Client ID)
-            target_id = graph_data[0].get("id")
+    # If the user is an admin but can't see the SP, the SP isn't in the allowed Security Group.
+    if verify_resp.status_code == 404:
+        raise HTTPException(
+            status_code=403, 
+            detail="The Service Principal is not recognized by Power BI. Ensure it is in the correct Security Group."
+        )
 
-    # STEP 2: TRY ADMIN API (The 'Force' Path)
-    # Admin APIs have higher priority in directory lookups
-    admin_url = f"https://api.powerbi.com/v1.0/myorg/admin/groups/{workspace_id}/users"
+    # --- FORCE STEP 2: THE ADDITION ---
+    users_url = f"{POWERBI_API}/groups/{workspace_id}/users"
     add_payload = {
-        "identifier": SP_CLIENT_ID, # API usually expects Client ID here
+        "identifier": SP_CLIENT_ID,
         "principalType": "App",
         "groupUserAccessRight": "Admin"
     }
 
-    print(f"DEBUG: Forcing add via Admin API for {SP_CLIENT_ID}")
-    resp = requests.post(admin_url, headers=headers, json=add_payload)
+    # Attempt the add
+    resp = requests.post(users_url, headers=headers, json=add_payload)
 
-    # STEP 3: FALLBACK TO STANDARD API IF ADMIN IS DENIED
-    if resp.status_code not in (200, 201):
-        print("Admin API failed or no permission. Trying Standard API...")
-        standard_url = f"{POWERBI_API}/groups/{workspace_id}/users"
-        resp = requests.post(standard_url, headers=headers, json=add_payload)
-
-    # STEP 4: FINAL VALIDATION
-    if resp.status_code in (200, 201):
+    if resp.status_code in (200, 201, 204):
         return {"status": "success", "message": "SP Forcefully Added"}
     
-    # If it still fails, it means the Power BI Tenant Setting is blocking it
-    # We return the actual error so you can see exactly what Microsoft is rejecting
-    raise HTTPException(
-        status_code=resp.status_code, 
-        detail=f"Microsoft Rejected Force-Add: {resp.text}"
-    )
+    # --- FINAL CATCH: IF STILL 403 ---
+    if resp.status_code == 403:
+        # This is likely the "AAD Sync" bug. To force solve this, the User 
+        # MUST have 'Tenant.ReadWrite.All' or be a Power BI Admin.
+        raise HTTPException(
+            status_code=403, 
+            detail="Force-Add Failed: Power BI Service is blocking this App ID. Check Tenant Developer Settings."
+        )
+
+    raise HTTPException(status_code=resp.status_code, detail=resp.text)
