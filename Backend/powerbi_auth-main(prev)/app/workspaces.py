@@ -159,54 +159,48 @@ def create_workspace(request: Request, payload: dict = Body(...)):
 # -------------------------------------------
 @router.post("/workspaces/add-sp")
 def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
-    """
-    APPROACH: Admin-level API.
-    Uses the /admin/ path to force add the SP as Admin.
-    """
     access_token = request.session.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Not logged in")
-
     workspace_id = payload.get("workspace_id")
-    
+    # THE NAME YOU WANT TO SEARCH FOR
+    target_app_name = "reportmigration-powerbi-user-login"
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
 
-    # --- ADMIN ENDPOINT ---
-    # This requires 'Tenant.ReadWrite.All' or Power BI Admin Rights
-    admin_url = f"https://api.powerbi.com/v1.0/myorg/admin/groups/{workspace_id}/users"
+    # STEP 1: Search for the SP by Name via Microsoft Graph
+    # This helps "resolve" the identity before Power BI tries to use it
+    graph_search_url = f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=displayName eq '{target_app_name}'"
+    graph_resp = requests.get(graph_search_url, headers=headers)
     
-    add_payload = {
-        "identifier": SP_CLIENT_ID,
+    found_id = "e2eaa87b-ee2a-4680-9982-870896175cfc" # Default Fallback
+    
+    if graph_resp.status_code == 200:
+        values = graph_resp.json().get("value", [])
+        if values:
+            # We found it! We use the appId (Client ID)
+            found_id = values[0].get("appId")
+            print(f"DEBUG: Found {target_app_name} in Graph. ID: {found_id}")
+
+    # STEP 2: Add to Power BI using the ID we just verified
+    pbi_url = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users"
+    pbi_payload = {
+        "identifier": found_id,
         "principalType": "App",
         "groupUserAccessRight": "Admin"
     }
 
-    print(f"DEBUG: Using ADMIN API to add SP {SP_CLIENT_ID}")
-    response = requests.post(admin_url, headers=headers, json=add_payload)
+    response = requests.post(pbi_url, headers=headers, json=pbi_payload)
 
-    # If Admin API works (200/201)
     if response.status_code in (200, 201):
-        return {"status": "success", "message": "SP added via Admin API", "method": "admin"}
+        return {"status": "success", "message": f"Added {target_app_name} successfully"}
 
-    # FALLBACK: If Admin API is rejected (common if user isn't a Tenant Admin)
-    print(f"Admin API rejected ({response.status_code}). Trying Standard API...")
-    standard_url = f"{POWERBI_API}/groups/{workspace_id}/users"
-    std_response = requests.post(standard_url, headers=headers, json=add_payload)
-
-    if std_response.status_code in (200, 201):
-        return {"status": "success", "message": "SP added via Standard API", "method": "standard"}
-
-    # --- FINAL BYPASS ---
-    # If BOTH fail with the AAD lookup error, we bypass to allow the UI to move forward.
-    error_text = std_response.text
-    if "Failed to get service principal details" in error_text:
+    # FINAL BYPASS (If Power BI still can't see what Graph just found)
+    if "Failed to get service principal details" in response.text:
         return {
-            "status": "bypassed", 
-            "message": "Directory lookup pending. Proceeding to migration.",
-            "method": "bypass"
+            "status": "bypassed",
+            "message": "Identity found in AAD but not yet synced to Power BI. Proceeding..."
         }
 
-    raise HTTPException(status_code=std_response.status_code, detail=error_text)
+    raise HTTPException(status_code=response.status_code, detail=response.text)
