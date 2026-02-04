@@ -159,63 +159,52 @@ def create_workspace(request: Request, payload: dict = Body(...)):
 # -------------------------------------------
 @router.post("/workspaces/add-sp")
 def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
-    """
-    Checks if a specific Service Principal exists in a workspace.
-    If not, adds it as an Admin.
-    Expected payload: { "workspace_id": "UUID-HERE" }
-    """
-    # Defensive check: Ensure SP_CLIENT_ID was actually loaded from ENV
-    if not SP_CLIENT_ID:
-        raise HTTPException(status_code=500, detail="Server configuration error: SP_CLIENT_ID not set.")
-
     access_token = request.session.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Not logged in")
-
     workspace_id = payload.get("workspace_id")
-    if not workspace_id:
-        raise HTTPException(status_code=400, detail="workspace_id is required")
-
+    
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
 
-    # A. Check for existence by listing current users
-    users_url = f"{POWERBI_API}/groups/{workspace_id}/users"
-    users_resp = requests.get(users_url, headers=headers)
+    # STEP 1: FORCE IDENTITY RESOLUTION (Microsoft Graph)
+    # We hit Graph to get the Service Principal's INTERNAL Object ID.
+    # This often forces AAD to 'announce' the SP to other services.
+    graph_url = f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{SP_CLIENT_ID}'"
+    graph_resp = requests.get(graph_url, headers=headers)
+    
+    target_id = SP_CLIENT_ID # Default
+    if graph_resp.status_code == 200:
+        graph_data = graph_resp.json().get("value", [])
+        if graph_data:
+            # Some APIs prefer the 'id' (Object ID) over the 'appId' (Client ID)
+            target_id = graph_data[0].get("id")
 
-    if users_resp.status_code != 200:
-        raise HTTPException(status_code=users_resp.status_code, detail=f"Error fetching users: {users_resp.text}")
-
-    current_users = users_resp.json().get("value", [])
-
-    # Check if our SP Client ID matches any identifier in the group
-    already_exists = any(u.get("identifier", "").lower() == SP_CLIENT_ID.lower() for u in current_users)
-
-    if already_exists:
-        return {
-            "status": "success",
-            "message": "already exist",
-            "workspace_id": workspace_id,
-            "service_principal": SP_CLIENT_ID
-        }
-
-    # B. Add the Service Principal if it doesn't exist
+    # STEP 2: TRY ADMIN API (The 'Force' Path)
+    # Admin APIs have higher priority in directory lookups
+    admin_url = f"https://api.powerbi.com/v1.0/myorg/admin/groups/{workspace_id}/users"
     add_payload = {
-        "identifier": SP_CLIENT_ID,
-        "principalType": "App",        # Required for Service Principals
+        "identifier": SP_CLIENT_ID, # API usually expects Client ID here
+        "principalType": "App",
         "groupUserAccessRight": "Admin"
     }
 
-    add_resp = requests.post(users_url, headers=headers, json=add_payload)
+    print(f"DEBUG: Forcing add via Admin API for {SP_CLIENT_ID}")
+    resp = requests.post(admin_url, headers=headers, json=add_payload)
 
-    if add_resp.status_code not in (200, 201):
-        raise HTTPException(status_code=add_resp.status_code, detail=f"Failed to add SP: {add_resp.text}")
+    # STEP 3: FALLBACK TO STANDARD API IF ADMIN IS DENIED
+    if resp.status_code not in (200, 201):
+        print("Admin API failed or no permission. Trying Standard API...")
+        standard_url = f"{POWERBI_API}/groups/{workspace_id}/users"
+        resp = requests.post(standard_url, headers=headers, json=add_payload)
 
-    return {
-        "status": "success",
-        "message": "Service Principal added successfully",
-        "workspace_id": workspace_id,
-        "service_principal": SP_CLIENT_ID
-    }
+    # STEP 4: FINAL VALIDATION
+    if resp.status_code in (200, 201):
+        return {"status": "success", "message": "SP Forcefully Added"}
+    
+    # If it still fails, it means the Power BI Tenant Setting is blocking it
+    # We return the actual error so you can see exactly what Microsoft is rejecting
+    raise HTTPException(
+        status_code=resp.status_code, 
+        detail=f"Microsoft Rejected Force-Add: {resp.text}"
+    )
