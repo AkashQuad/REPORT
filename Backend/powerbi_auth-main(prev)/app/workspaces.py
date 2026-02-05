@@ -132,41 +132,41 @@ def create_workspace(request: Request, payload: dict = Body(...)):
     }
 
 
-@router.get("/user/me")
-def get_user_details(request: Request):
-    """
-    Fetches the authenticated user's profile details from Microsoft Graph.
-    """
-    access_token = request.session.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Not logged in")
+# @router.get("/user/me")
+# def get_user_details(request: Request):
+#     """
+#     Fetches the authenticated user's profile details from Microsoft Graph.
+#     """
+#     access_token = request.session.get("access_token")
+#     if not access_token:
+#         raise HTTPException(status_code=401, detail="Not logged in")
 
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
+#     headers = {
+#         "Authorization": f"Bearer {access_token}",
+#         "Content-Type": "application/json"
+#     }
 
-    try:
-        resp = requests.get(f"{GRAPH_API}/me", headers=headers, timeout=10)
+#     try:
+#         resp = requests.get(f"{GRAPH_API}/me", headers=headers, timeout=10)
         
-        if resp.status_code != 200:
-            # Common issue: Token doesn't have Graph scopes
-            error_info = resp.json() if resp.text else "No response body"
-            raise HTTPException(
-                status_code=resp.status_code, 
-                detail={"message": "Failed to fetch user info from Graph", "ms_error": error_info}
-            )
+#         if resp.status_code != 200:
+#             # Common issue: Token doesn't have Graph scopes
+#             error_info = resp.json() if resp.text else "No response body"
+#             raise HTTPException(
+#                 status_code=resp.status_code, 
+#                 detail={"message": "Failed to fetch user info from Graph", "ms_error": error_info}
+#             )
 
-        user_data = resp.json()
-        return {
-            "displayName": user_data.get("displayName"),
-            "mail": user_data.get("mail") or user_data.get("userPrincipalName"),
-            "jobTitle": user_data.get("jobTitle"),
-            "id": user_data.get("id"),
-            "preferredLanguage": user_data.get("preferredLanguage")
-        }
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Request to Graph API failed: {str(e)}")
+#         user_data = resp.json()
+#         return {
+#             "displayName": user_data.get("displayName"),
+#             "mail": user_data.get("mail") or user_data.get("userPrincipalName"),
+#             "jobTitle": user_data.get("jobTitle"),
+#             "id": user_data.get("id"),
+#             "preferredLanguage": user_data.get("preferredLanguage")
+#         }
+#     except requests.exceptions.RequestException as e:
+#         raise HTTPException(status_code=500, detail=f"Request to Graph API failed: {str(e)}")
 
 @router.post("/workspaces/add-sp")
 def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
