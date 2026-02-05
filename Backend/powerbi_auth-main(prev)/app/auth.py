@@ -111,7 +111,6 @@
 #     }
 
 
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 import msal
@@ -120,7 +119,6 @@ from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERB
 
 router = APIRouter()
 
-# Combine Power BI + Graph scopes
 REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["User.Read"]))
 
 msal_app = msal.ConfidentialClientApplication(
@@ -131,7 +129,6 @@ msal_app = msal.ConfidentialClientApplication(
 
 @router.get("/login")
 def login(request: Request):
-
     request.session.clear()
 
     auth_url = msal_app.get_authorization_request_url(
@@ -154,11 +151,9 @@ def auth_callback(request: Request, code: str):
     if "access_token" not in token:
         raise HTTPException(status_code=400, detail=token)
 
+    # ALWAYS create session
     request.session["access_token"] = token["access_token"]
-
-    # Critical for /auth/me
-    if "id_token_claims" in token:
-        request.session["user"] = token.get("id_token_claims")
+    request.session["user"] = token.get("id_token_claims", {})
 
     return RedirectResponse(
         "https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success"
@@ -179,4 +174,3 @@ def me(request: Request):
         "oid": user.get("oid"),
         "tenant": user.get("tid"),
     }
-
