@@ -5,8 +5,9 @@ from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERB
 
 router = APIRouter()
 
-# Combine PowerBI scopes with Graph scopes
-REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
+# FIX: Remove 'openid' and 'profile' from the list. 
+# MSAL adds these automatically. Only keep 'User.Read' and your Power BI scopes.
+REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["User.Read"]))
 
 msal_app = msal.ConfidentialClientApplication(
     CLIENT_ID,
@@ -17,8 +18,9 @@ msal_app = msal.ConfidentialClientApplication(
 @router.get("/login")
 def login(request: Request):
     request.session.clear()
+    # MSAL will now proceed without the ValueError
     auth_url = msal_app.get_authorization_request_url(
-        scopes=REQUIRED_SCOPES, # Use combined scopes
+        scopes=REQUIRED_SCOPES,
         redirect_uri=REDIRECT_URI
     )
     return RedirectResponse(auth_url)
@@ -27,15 +29,16 @@ def login(request: Request):
 def auth_callback(request: Request, code: str):
     token = msal_app.acquire_token_by_authorization_code(
         code=code,
-        scopes=REQUIRED_SCOPES, # Use combined scopes
+        scopes=REQUIRED_SCOPES,
         redirect_uri=REDIRECT_URI
     )
 
     if "access_token" not in token:
         raise HTTPException(status_code=400, detail=token)
 
-    # Store token and user data
     request.session["access_token"] = token["access_token"]
+    
+    # id_token_claims will still contain name/email even if we didn't pass 'profile' manually
     if "id_token_claims" in token:
         request.session["user"] = token.get("id_token_claims")
 
@@ -55,4 +58,3 @@ def me(request: Request):
         "oid": user.get("oid"),
         "tenant": user.get("tid"),
     }
-    
