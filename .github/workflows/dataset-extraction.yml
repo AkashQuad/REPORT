@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - Backend/dataset-extraction-main(prev)/**
+      - Backend/tableau-datasets-backend-main(prev)/**
   workflow_dispatch:
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
 
       # Same build logic as old repo, scoped to subfolder
       - name: Create and start virtual environment and install dependencies
-        working-directory: Backend/dataset-extraction-main(prev)
+        working-directory: Backend/tableau-datasets-backend-main(prev)
         run: |
           python -m venv antenv
           source antenv/bin/activate
@@ -36,8 +36,8 @@ jobs:
         with:
           name: dataset-extraction
           path: |
-            Backend/dataset-extraction-main(prev)
-            !Backend/dataset-extraction-main(prev)/antenv/
+            Backend/tableau-datasets-backend-main(prev)
+            !Backend/tableau-datasets-backend-main(prev)/antenv/
 
   deploy:
     runs-on: ubuntu-latest
