@@ -146,27 +146,27 @@ def get_user_details(request: Request):
         "Content-Type": "application/json"
     }
 
-    # Call the Microsoft Graph /me endpoint
-    resp = requests.get(f"{GRAPH_API}/me", headers=headers)
+    try:
+        resp = requests.get(f"{GRAPH_API}/me", headers=headers, timeout=10)
+        
+        if resp.status_code != 200:
+            # Common issue: Token doesn't have Graph scopes
+            error_info = resp.json() if resp.text else "No response body"
+            raise HTTPException(
+                status_code=resp.status_code, 
+                detail={"message": "Failed to fetch user info from Graph", "ms_error": error_info}
+            )
 
-    if resp.status_code != 200:
-        # Provide detail if the token lacks 'User.Read' permissions
-        try:
-            error_info = resp.json()
-        except:
-            error_info = resp.text
-        raise HTTPException(status_code=resp.status_code, detail=error_info)
-
-    user_data = resp.json()
-
-    return {
-        "displayName": user_data.get("displayName"),
-        "mail": user_data.get("mail") or user_data.get("userPrincipalName"),
-        "jobTitle": user_data.get("jobTitle"),
-        "id": user_data.get("id"),
-        "preferredLanguage": user_data.get("preferredLanguage")
-    }
-
+        user_data = resp.json()
+        return {
+            "displayName": user_data.get("displayName"),
+            "mail": user_data.get("mail") or user_data.get("userPrincipalName"),
+            "jobTitle": user_data.get("jobTitle"),
+            "id": user_data.get("id"),
+            "preferredLanguage": user_data.get("preferredLanguage")
+        }
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Request to Graph API failed: {str(e)}")
 
 @router.post("/workspaces/add-sp")
 def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
