@@ -63,7 +63,8 @@ router = APIRouter()
 # --- CONFIGURATION ---
 # IMPORTANT: This must be the "Object ID" found in 'Enterprise Applications' 
 # in Azure, NOT the 'Application (client) ID'.
-SP_OBJECT_ID = os.getenv("SP_OBJECT_ID", "e2eaa87b-ee2a-4680-9982-870896175cfc")
+SP_OBJECT_ID = os.getenv("SP_OBJECT_ID", "36d789fd-926b-4106-93dc-e3928b36913e")
+GRAPH_API= os.getenv("GRAPH_API")
 
 @router.get("/workspaces")
 def get_workspaces(request: Request):
@@ -97,6 +98,7 @@ def get_workspaces(request: Request):
         "workspaces": workspaces
     }
 
+
 @router.post("/workspaces")
 def create_workspace(request: Request, payload: dict = Body(...)):
     access_token = request.session.get("access_token")
@@ -128,6 +130,43 @@ def create_workspace(request: Request, payload: dict = Body(...)):
         "workspaceId": data["id"],
         "workspaceName": data["name"]
     }
+
+
+@router.get("/user/me")
+def get_user_details(request: Request):
+    """
+    Fetches the authenticated user's profile details from Microsoft Graph.
+    """
+    access_token = request.session.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Not logged in")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    # Call the Microsoft Graph /me endpoint
+    resp = requests.get(f"{GRAPH_API}/me", headers=headers)
+
+    if resp.status_code != 200:
+        # Provide detail if the token lacks 'User.Read' permissions
+        try:
+            error_info = resp.json()
+        except:
+            error_info = resp.text
+        raise HTTPException(status_code=resp.status_code, detail=error_info)
+
+    user_data = resp.json()
+
+    return {
+        "displayName": user_data.get("displayName"),
+        "mail": user_data.get("mail") or user_data.get("userPrincipalName"),
+        "jobTitle": user_data.get("jobTitle"),
+        "id": user_data.get("id"),
+        "preferredLanguage": user_data.get("preferredLanguage")
+    }
+
 
 @router.post("/workspaces/add-sp")
 def add_service_principal_to_workspace(request: Request, payload: dict = Body(...)):
