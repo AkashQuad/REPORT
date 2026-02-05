@@ -50,10 +50,7 @@ from app.auto_upload import router as auto_upload_router
 
 app = FastAPI()
 
-# --------------------------------------------------
-# CORS (MUST be before SessionMiddleware)
-# --------------------------------------------------
-
+# CORS MUST be before SessionMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -66,20 +63,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --------------------------------------------------
-# Session Middleware (CRITICAL)
-# --------------------------------------------------
-
+# Session middleware (cross-site compatible)
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET_KEY", "CHANGE_THIS_TO_LONG_RANDOM_SECRET"),
     same_site="none",
     https_only=True,
+    session_cookie="session"   # 🔥 ADD THIS BACK
 )
-
-# --------------------------------------------------
-# Routers
-# --------------------------------------------------
 
 app.include_router(auth_router)
 app.include_router(workspace_router)
@@ -88,4 +79,3 @@ app.include_router(auto_upload_router)
 @app.get("/")
 def root():
     return {"status": "Backend running"}
-
