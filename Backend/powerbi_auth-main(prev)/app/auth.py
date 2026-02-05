@@ -55,3 +55,4 @@ def me(request: Request):
         "oid": user.get("oid"),
         "tenant": user.get("tid"),
     }
+    
