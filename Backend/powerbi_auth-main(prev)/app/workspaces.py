@@ -64,7 +64,7 @@ router = APIRouter()
 # IMPORTANT: This must be the "Object ID" found in 'Enterprise Applications' 
 # in Azure, NOT the 'Application (client) ID'.
 SP_OBJECT_ID = os.getenv("SP_OBJECT_ID", "36d789fd-926b-4106-93dc-e3928b36913e")
-GRAPH_API = os.getenv("GRAPH_API", "https://graph.microsoft.com/v1.0")
+# GRAPH_API = os.getenv("GRAPH_API", "https://graph.microsoft.com/v1.0")
 
 @router.get("/workspaces")
 def get_workspaces(request: Request):
