@@ -114,6 +114,8 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 import msal
+import json
+from urllib.parse import quote
 
 from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERBI_SCOPE
 
@@ -127,6 +129,7 @@ msal_app = msal.ConfidentialClientApplication(
     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
     client_credential=CLIENT_SECRET,
 )
+
 
 @router.get("/login")
 def login(request: Request):
@@ -153,33 +156,29 @@ def auth_callback(request: Request, code: str):
     if "access_token" not in token:
         raise HTTPException(status_code=400, detail=token)
 
-    # Store token
+    # Store token (optional backup)
     request.session["access_token"] = token["access_token"]
 
-    # User info comes from ID TOKEN (not Graph)
-    user = token.get("id_token_claims")
+    # User info from ID token (NO GRAPH)
+    claims = token.get("id_token_claims")
 
-    if not user:
+    if not claims:
         raise HTTPException(status_code=400, detail="No id_token_claims returned")
 
-    request.session["user"] = {
-        "name": user.get("name"),
-        "email": user.get("preferred_username"),
-        "oid": user.get("oid"),
-        "tenant": user.get("tid"),
+    user_payload = {
+        "name": claims.get("name"),
+        "email": claims.get("preferred_username"),
+        "oid": claims.get("oid"),
+        "tenant": claims.get("tid"),
+        "jobTitle": claims.get("jobTitle", "")
     }
 
+    # Also store in session if needed later
+    request.session["user"] = user_payload
+
+    # Send user directly to frontend
+    encoded_user = quote(json.dumps(user_payload))
+
     return RedirectResponse(
-        "https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success"
+        f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success?user={encoded_user}"
     )
-
-
-@router.get("/auth/me")
-def me(request: Request):
-
-    user = request.session.get("user")
-
-    if not user:
-        raise HTTPException(status_code=401, detail="Session missing")
-
-    return user
