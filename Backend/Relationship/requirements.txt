@@ -3,6 +3,14 @@ gunicorn
 requests
 python-dotenv
 azure-storage-blob
+fastapi
+gunicorn
+requests
+python-dotenv
+azure-storage-blob
+pandas
+numpy
+
 
 
 
