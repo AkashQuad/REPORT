@@ -1,9 +1,11 @@
 fastapi
 gunicorn
+uvicorn
 pandas
 tableauhyperapi
 azure-storage-blob
 python-dotenv
+
 
 
 
