@@ -4,8 +4,7 @@ gunicorn
 requests
 python-dotenv
 azure-storage-blob
-pandas
-numpy
+
 
 
 
