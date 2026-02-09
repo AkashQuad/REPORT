@@ -1,9 +1,10 @@
-
 fastapi
 gunicorn
-requests
-python-dotenv
+pandas
+tableauhyperapi
 azure-storage-blob
+python-dotenv
+
 
 
 
