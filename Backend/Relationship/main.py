@@ -7,7 +7,7 @@ import time
 import logging
 import tempfile
 import requests
-#import pandas as pd
+import pandas as pd
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
