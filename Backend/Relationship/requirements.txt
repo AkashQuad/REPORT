@@ -1,7 +1,9 @@
 fastapi
-uvicorn[standard]
-python-multipart
-requests
+uvicorn
+gunicorn
 pandas
-pydantic
+requests
+python-dotenv
+azure-storage-blob
 tableauhyperapi
+
