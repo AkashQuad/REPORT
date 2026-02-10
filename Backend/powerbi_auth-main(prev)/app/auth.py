@@ -329,96 +329,72 @@ from app.config import (
     CLIENT_SECRET,
     TENANT_ID,
     REDIRECT_URI,
-    POWERBI_SCOPE
+    POWERBI_SCOPE,
 )
 
 router = APIRouter()
 
-# -------------------------------------------------
-# MSAL CONFIG
-# -------------------------------------------------
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-
+# MSAL client
 msal_app = msal.ConfidentialClientApplication(
-    client_id=CLIENT_ID,
+    CLIENT_ID,
+    authority=f"https://login.microsoftonline.com/{TENANT_ID}",
     client_credential=CLIENT_SECRET,
-    authority=AUTHORITY,
 )
 
-# -------------------------------------------------
+# ------------------------
 # LOGIN
-# -------------------------------------------------
+# ------------------------
 @router.get("/login")
 def login(request: Request):
     request.session.clear()
 
     auth_url = msal_app.get_authorization_request_url(
         scopes=POWERBI_SCOPE,
-        redirect_uri=REDIRECT_URI
+        redirect_uri=REDIRECT_URI,
+        prompt="select_account",
     )
 
     return RedirectResponse(auth_url)
 
-# -------------------------------------------------
-# AUTH CALLBACK
-# -------------------------------------------------
+
+# ------------------------
+# AUTH CALLBACK (FIXED)
+# ------------------------
 @router.get("/auth/callback")
 def auth_callback(request: Request, code: str):
-
     token = msal_app.acquire_token_by_authorization_code(
         code=code,
         scopes=POWERBI_SCOPE,
-        redirect_uri=REDIRECT_URI
+        redirect_uri=REDIRECT_URI,
     )
 
     if "access_token" not in token:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "Token acquisition failed",
-                "details": token
-            }
-        )
+        raise HTTPException(status_code=400, detail=token)
 
-    claims = token.get("id_token_claims")
-    if not claims:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing id_token_claims in token response"
-        )
+    # ---- Store token in backend session (for backend-only calls)
+    request.session["access_token"] = token["access_token"]
+    request.session["id_token"] = token.get("id_token")
 
-    # Build user object
+    # ---- Extract user info from ID token
+    claims = token.get("id_token_claims", {})
+
     user = {
         "name": claims.get("name"),
         "email": claims.get("preferred_username"),
         "oid": claims.get("oid"),
-        "tenant_id": claims.get("tid")
+        "tid": claims.get("tid"),
     }
 
-    # Store token + user in backend session (optional but useful)
-    request.session["access_token"] = token["access_token"]
-    request.session["user"] = user
+    # ---- IMPORTANT FIX: send token to frontend
+    user_json = json.dumps({
+        **user,
+        "access_token": token["access_token"]
+    })
 
-    # -------------------------------------------------
-    # PASS USER DATA VIA URL QUERY PARAM
-    # -------------------------------------------------
-    user_json = json.dumps(user)
     encoded_user = urllib.parse.quote(user_json)
 
-    redirect_url = (
-        "https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app"
-        f"/powerbi-auth-success?user={encoded_user}"
+    return RedirectResponse(
+        f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/"
+        f"powerbi-auth-success?user={encoded_user}"
     )
-
-    print("Redirecting user:", user)
-
-    return RedirectResponse(redirect_url)
-
-# -------------------------------------------------
-# LOGOUT
-# -------------------------------------------------
-@router.get("/logout")
-def logout(request: Request):
-    request.session.clear()
-    return {"message": "Logged out successfully"}
 
