@@ -37,3 +37,4 @@ def auth_callback(request: Request, code: str):
     return RedirectResponse(
         "https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success"
     )
+    
