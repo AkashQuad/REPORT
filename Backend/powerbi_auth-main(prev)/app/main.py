@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth import router as auth_router
 from app.workspaces import router as workspace_router
 from app.auto_upload import router as auto_upload_router
-from app.powerbi_folder_migration import router as folder_router
+# from app.powerbi_folder_migration import router as folder_router
 
 
 app = FastAPI()
@@ -32,11 +32,8 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(workspace_router)
 app.include_router(auto_upload_router)
-app.include_router(folder_router)
+# app.include_router(folder_router)
 
 @app.get("/")
 def root():
     return {"status": "Backend running"}
-
-
-
