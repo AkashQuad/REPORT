@@ -1,13 +1,9 @@
 fastapi
 uvicorn
-gunicorn
 requests
-msal
 python-dotenv
+msal
 azure-storage-blob
-pandas
-openpyxl
-
 
 # fastapi
 # uvicorn
