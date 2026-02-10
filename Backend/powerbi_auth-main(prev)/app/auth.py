@@ -123,7 +123,7 @@ router = APIRouter()
 
 # ONLY Power BI scopes
 # REQUIRED_SCOPES = POWERBI_SCOPE
- REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
+REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
 
 msal_app = msal.ConfidentialClientApplication(
     CLIENT_ID,
