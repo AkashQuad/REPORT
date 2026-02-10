@@ -4,9 +4,7 @@ requests
 python-dotenv
 msal
 azure-storage-blob
-python-multipart
-itsdangerous
-
+pyjwt
 
 # fastapi
 # uvicorn
