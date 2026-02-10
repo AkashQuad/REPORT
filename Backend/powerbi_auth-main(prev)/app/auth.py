@@ -317,9 +317,12 @@
 #     return RedirectResponse(
 #         f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success?user={encoded_user}"
 #     )
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 import msal
+import json
+import urllib.parse
 
 from app.config import (
     CLIENT_ID,
@@ -332,7 +335,7 @@ from app.config import (
 router = APIRouter()
 
 # -------------------------------------------------
-# MSAL CONFIGURATION
+# MSAL CONFIG
 # -------------------------------------------------
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 
@@ -347,7 +350,6 @@ msal_app = msal.ConfidentialClientApplication(
 # -------------------------------------------------
 @router.get("/login")
 def login(request: Request):
-    # Clear old session
     request.session.clear()
 
     auth_url = msal_app.get_authorization_request_url(
@@ -378,7 +380,6 @@ def auth_callback(request: Request, code: str):
             }
         )
 
-    # MSAL automatically includes id_token_claims
     claims = token.get("id_token_claims")
     if not claims:
         raise HTTPException(
@@ -386,23 +387,32 @@ def auth_callback(request: Request, code: str):
             detail="Missing id_token_claims in token response"
         )
 
-    # Store in session
-    request.session["access_token"] = token["access_token"]
-    request.session["user"] = {
+    # Build user object
+    user = {
         "name": claims.get("name"),
         "email": claims.get("preferred_username"),
         "oid": claims.get("oid"),
         "tenant_id": claims.get("tid")
     }
 
-    # Debug logs (safe)
-    print("TOKEN KEYS:", token.keys())
-    print("USER SESSION:", request.session["user"])
+    # Store token + user in backend session (optional but useful)
+    request.session["access_token"] = token["access_token"]
+    request.session["user"] = user
 
-    # Redirect to frontend success page
-    return RedirectResponse(
-        "https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success"
+    # -------------------------------------------------
+    # PASS USER DATA VIA URL QUERY PARAM
+    # -------------------------------------------------
+    user_json = json.dumps(user)
+    encoded_user = urllib.parse.quote(user_json)
+
+    redirect_url = (
+        "https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app"
+        f"/powerbi-auth-success?user={encoded_user}"
     )
+
+    print("Redirecting user:", user)
+
+    return RedirectResponse(redirect_url)
 
 # -------------------------------------------------
 # LOGOUT
@@ -411,3 +421,4 @@ def auth_callback(request: Request, code: str):
 def logout(request: Request):
     request.session.clear()
     return {"message": "Logged out successfully"}
+
