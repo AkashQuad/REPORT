@@ -374,7 +374,7 @@ from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERB
 router = APIRouter()
 
 # Combine PowerBI scopes with Graph scopes
-REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
+REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["User.Read"]))
 
 msal_app = msal.ConfidentialClientApplication(
     CLIENT_ID,
