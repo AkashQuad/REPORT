@@ -1,119 +1,45 @@
-# from fastapi import APIRouter, HTTPException, Request
-
-# from fastapi.responses import RedirectResponse
-
-# import msal
-
-# from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERBI_SCOPE
-
-
-
-# router = APIRouter()
-
-# REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
-
-# msal_app = msal.ConfidentialClientApplication(
-
-#     CLIENT_ID,
-
-#     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-
-#     client_credential=CLIENT_SECRET
-
-# )
-
-
-
-# @router.get("/login")
-
-# def login(request: Request):
-
-#     request.session.clear()
-
-#     auth_url = msal_app.get_authorization_request_url(
-
-#         scopes=POWERBI_SCOPE,
-
-#         redirect_uri=REDIRECT_URI
-
-#     )
-
-#     return RedirectResponse(auth_url)
-
-
-
-# @router.get("/auth/callback")
-# def auth_callback(request: Request, code: str):
-
-#     token = msal_app.acquire_token_by_authorization_code(
-#         code=code,
-#         scopes=REQUIRED_SCOPES,
-#         redirect_uri=REDIRECT_URI,
-#     )
-
-#     if "access_token" not in token:
-#         raise HTTPException(status_code=400, detail=token)
-
-#     # Store token (optional backup)
-#     request.session["access_token"] = token["access_token"]
-
-#     # User info from ID token (NO GRAPH)
-#     claims = token.get("id_token_claims")
-
-#     if not claims:
-#         raise HTTPException(status_code=400, detail="No id_token_claims returned")
-
-#     user_payload = {
-#         "name": claims.get("name"),
-#         "email": claims.get("preferred_username"),
-#         "oid": claims.get("oid"),
-#         "tenant": claims.get("tid"),
-#         "jobTitle": claims.get("jobTitle", "")
-#     }
-
-#     # Also store in session if needed later
-#     request.session["user"] = user_payload
-
-#     # Send user directly to frontend
-#     encoded_user = quote(json.dumps(user_payload))
-
-#     return RedirectResponse(
-#         f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success?user={encoded_user}"
-#     )
-
-
 # # from fastapi import APIRouter, HTTPException, Request
+
 # # from fastapi.responses import RedirectResponse
+
 # # import msal
-# # import json
-# # from urllib.parse import quote
 
 # # from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERBI_SCOPE
 
+
+
 # # router = APIRouter()
 
-# # # ONLY Power BI scopes
-# # # REQUIRED_SCOPES = POWERBI_SCOPE
 # # REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
 
 # # msal_app = msal.ConfidentialClientApplication(
+
 # #     CLIENT_ID,
+
 # #     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-# #     client_credential=CLIENT_SECRET,
+
+# #     client_credential=CLIENT_SECRET
+
 # # )
 
 
+
 # # @router.get("/login")
+
 # # def login(request: Request):
 
 # #     request.session.clear()
 
 # #     auth_url = msal_app.get_authorization_request_url(
-# #         scopes=REQUIRED_SCOPES,
-# #         redirect_uri=REDIRECT_URI,
+
+# #         scopes=POWERBI_SCOPE,
+
+# #         redirect_uri=REDIRECT_URI
+
 # #     )
 
 # #     return RedirectResponse(auth_url)
+
 
 
 # # @router.get("/auth/callback")
@@ -156,164 +82,332 @@
 # #     )
 
 
-# # from fastapi import APIRouter, HTTPException, Request
-# # from fastapi.responses import RedirectResponse
-# # import msal
-# # import json
-# # from urllib.parse import quote
+# # # from fastapi import APIRouter, HTTPException, Request
+# # # from fastapi.responses import RedirectResponse
+# # # import msal
+# # # import json
+# # # from urllib.parse import quote
 
-# # from app.config import (
-# #     CLIENT_ID,
-# #     CLIENT_SECRET,
-# #     TENANT_ID,
-# #     REDIRECT_URI,
-# #     POWERBI_SCOPE,
-# # )
+# # # from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERBI_SCOPE
 
-# # router = APIRouter()
+# # # router = APIRouter()
 
-# # # ---------------------------------------------------
-# # # REQUIRED SCOPES
-# # # ---------------------------------------------------
-# # # Power BI delegated scope + OpenID scopes
-# # REQUIRED_SCOPES = list(set(
-# #     POWERBI_SCOPE + ["openid", "profile", "email"]
-# # ))
+# # # # ONLY Power BI scopes
+# # # # REQUIRED_SCOPES = POWERBI_SCOPE
+# # # REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
 
-# # # ---------------------------------------------------
-# # # MSAL CLIENT
-# # # ---------------------------------------------------
-# # msal_app = msal.ConfidentialClientApplication(
-# #     client_id=CLIENT_ID,
-# #     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-# #     client_credential=CLIENT_SECRET,
-# # )
-
-# # # ---------------------------------------------------
-# # # LOGIN ENDPOINT
-# # # ---------------------------------------------------
-# # @router.get("/login")
-# # def login(request: Request):
-# #     # Clear existing session
-# #     request.session.clear()
-
-# #     auth_url = msal_app.get_authorization_request_url(
-# #         scopes=REQUIRED_SCOPES,
-# #         redirect_uri=REDIRECT_URI,
-# #         prompt="select_account",
-# #     )
-
-# #     return RedirectResponse(auth_url)
+# # # msal_app = msal.ConfidentialClientApplication(
+# # #     CLIENT_ID,
+# # #     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+# # #     client_credential=CLIENT_SECRET,
+# # # )
 
 
-# # # ---------------------------------------------------
-# # # AUTH CALLBACK
-# # # ---------------------------------------------------
-# # @router.get("/auth/callback")
-# # def auth_callback(request: Request, code: str):
+# # # @router.get("/login")
+# # # def login(request: Request):
 
-# #     token = msal_app.acquire_token_by_authorization_code(
-# #         code=code,
-# #         scopes=REQUIRED_SCOPES,
-# #         redirect_uri=REDIRECT_URI,
-# #     )
+# # #     request.session.clear()
 
-# #     # Handle MSAL errors
-# #     if "error" in token:
-# #         raise HTTPException(
-# #             status_code=400,
-# #             detail={
-# #                 "error": token.get("error"),
-# #                 "description": token.get("error_description"),
-# #             },
-# #         )
+# # #     auth_url = msal_app.get_authorization_request_url(
+# # #         scopes=REQUIRED_SCOPES,
+# # #         redirect_uri=REDIRECT_URI,
+# # #     )
 
-# #     if "access_token" not in token:
-# #         raise HTTPException(status_code=400, detail="No access token returned")
+# # #     return RedirectResponse(auth_url)
 
-# #     # Store access token in session (short-lived)
-# #     request.session["access_token"] = token["access_token"]
 
-# #     # Extract ID token claims
-# #     claims = token.get("id_token_claims")
-# #     if not claims:
-# #         raise HTTPException(status_code=400, detail="No id_token_claims returned")
+# # # @router.get("/auth/callback")
+# # # def auth_callback(request: Request, code: str):
 
-# #     # User payload (NO Microsoft Graph)
-# #     user_payload = {
-# #         "name": claims.get("name"),
-# #         "email": claims.get("preferred_username") or claims.get("email"),
-# #         "oid": claims.get("oid"),
-# #         "tenant": claims.get("tid"),
-# #     }
+# # #     token = msal_app.acquire_token_by_authorization_code(
+# # #         code=code,
+# # #         scopes=REQUIRED_SCOPES,
+# # #         redirect_uri=REDIRECT_URI,
+# # #     )
 
-# #     # Save user info in session
-# #     request.session["user"] = user_payload
+# # #     if "access_token" not in token:
+# # #         raise HTTPException(status_code=400, detail=token)
 
-# #     # Encode payload for frontend redirect
-# #     encoded_user = quote(json.dumps(user_payload))
+# # #     # Store token (optional backup)
+# # #     request.session["access_token"] = token["access_token"]
 
-# #     # Redirect to frontend
-# #     return RedirectResponse(
-# #         f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/"
-# #         f"powerbi-auth-success?user={encoded_user}"
-# #     )
+# # #     # User info from ID token (NO GRAPH)
+# # #     claims = token.get("id_token_claims")
 
+# # #     if not claims:
+# # #         raise HTTPException(status_code=400, detail="No id_token_claims returned")
+
+# # #     user_payload = {
+# # #         "name": claims.get("name"),
+# # #         "email": claims.get("preferred_username"),
+# # #         "oid": claims.get("oid"),
+# # #         "tenant": claims.get("tid"),
+# # #         "jobTitle": claims.get("jobTitle", "")
+# # #     }
+
+# # #     # Also store in session if needed later
+# # #     request.session["user"] = user_payload
+
+# # #     # Send user directly to frontend
+# # #     encoded_user = quote(json.dumps(user_payload))
+
+# # #     return RedirectResponse(
+# # #         f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success?user={encoded_user}"
+# # #     )
+
+
+# # # from fastapi import APIRouter, HTTPException, Request
+# # # from fastapi.responses import RedirectResponse
+# # # import msal
+# # # import json
+# # # from urllib.parse import quote
+
+# # # from app.config import (
+# # #     CLIENT_ID,
+# # #     CLIENT_SECRET,
+# # #     TENANT_ID,
+# # #     REDIRECT_URI,
+# # #     POWERBI_SCOPE,
+# # # )
+
+# # # router = APIRouter()
+
+# # # # ---------------------------------------------------
+# # # # REQUIRED SCOPES
+# # # # ---------------------------------------------------
+# # # # Power BI delegated scope + OpenID scopes
+# # # REQUIRED_SCOPES = list(set(
+# # #     POWERBI_SCOPE + ["openid", "profile", "email"]
+# # # ))
+
+# # # # ---------------------------------------------------
+# # # # MSAL CLIENT
+# # # # ---------------------------------------------------
+# # # msal_app = msal.ConfidentialClientApplication(
+# # #     client_id=CLIENT_ID,
+# # #     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+# # #     client_credential=CLIENT_SECRET,
+# # # )
+
+# # # # ---------------------------------------------------
+# # # # LOGIN ENDPOINT
+# # # # ---------------------------------------------------
+# # # @router.get("/login")
+# # # def login(request: Request):
+# # #     # Clear existing session
+# # #     request.session.clear()
+
+# # #     auth_url = msal_app.get_authorization_request_url(
+# # #         scopes=REQUIRED_SCOPES,
+# # #         redirect_uri=REDIRECT_URI,
+# # #         prompt="select_account",
+# # #     )
+
+# # #     return RedirectResponse(auth_url)
+
+
+# # # # ---------------------------------------------------
+# # # # AUTH CALLBACK
+# # # # ---------------------------------------------------
+# # # @router.get("/auth/callback")
+# # # def auth_callback(request: Request, code: str):
+
+# # #     token = msal_app.acquire_token_by_authorization_code(
+# # #         code=code,
+# # #         scopes=REQUIRED_SCOPES,
+# # #         redirect_uri=REDIRECT_URI,
+# # #     )
+
+# # #     # Handle MSAL errors
+# # #     if "error" in token:
+# # #         raise HTTPException(
+# # #             status_code=400,
+# # #             detail={
+# # #                 "error": token.get("error"),
+# # #                 "description": token.get("error_description"),
+# # #             },
+# # #         )
+
+# # #     if "access_token" not in token:
+# # #         raise HTTPException(status_code=400, detail="No access token returned")
+
+# # #     # Store access token in session (short-lived)
+# # #     request.session["access_token"] = token["access_token"]
+
+# # #     # Extract ID token claims
+# # #     claims = token.get("id_token_claims")
+# # #     if not claims:
+# # #         raise HTTPException(status_code=400, detail="No id_token_claims returned")
+
+# # #     # User payload (NO Microsoft Graph)
+# # #     user_payload = {
+# # #         "name": claims.get("name"),
+# # #         "email": claims.get("preferred_username") or claims.get("email"),
+# # #         "oid": claims.get("oid"),
+# # #         "tenant": claims.get("tid"),
+# # #     }
+
+# # #     # Save user info in session
+# # #     request.session["user"] = user_payload
+
+# # #     # Encode payload for frontend redirect
+# # #     encoded_user = quote(json.dumps(user_payload))
+
+# # #     # Redirect to frontend
+# # #     return RedirectResponse(
+# # #         f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/"
+# # #         f"powerbi-auth-success?user={encoded_user}"
+# # #     )
+
+# from fastapi import APIRouter, HTTPException, Request
+# from fastapi.responses import RedirectResponse
+# import msal
+# import json
+# from urllib.parse import quote
+
+# from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERBI_SCOPE
+
+# router = APIRouter()
+
+# REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
+
+# msal_app = msal.ConfidentialClientApplication(
+#     CLIENT_ID,
+#     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+#     client_credential=CLIENT_SECRET
+# )
+
+# @router.get("/login")
+# def login(request: Request):
+#     request.session.clear()
+
+#     auth_url = msal_app.get_authorization_request_url(
+#         scopes=REQUIRED_SCOPES,
+#         redirect_uri=REDIRECT_URI
+#     )
+#     return RedirectResponse(auth_url)
+
+# @router.get("/auth/callback")
+# def auth_callback(request: Request, code: str):
+
+#     token = msal_app.acquire_token_by_authorization_code(
+#         code=code,
+#         scopes=REQUIRED_SCOPES,
+#         redirect_uri=REDIRECT_URI,
+#     )
+
+#     if "access_token" not in token:
+#         raise HTTPException(status_code=400, detail=token)
+
+#     claims = token.get("id_token_claims")
+#     if not claims:
+#         raise HTTPException(status_code=400, detail="No id_token_claims returned")
+
+#     user_payload = {
+#         "name": claims.get("name"),
+#         "email": claims.get("preferred_username"),
+#         "oid": claims.get("oid"),
+#         "tenant": claims.get("tid")
+#     }
+
+#     request.session["user"] = user_payload
+
+#     encoded_user = quote(json.dumps(user_payload))
+
+#     return RedirectResponse(
+#         f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success?user={encoded_user}"
+#     )
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 import msal
-import json
-from urllib.parse import quote
 
-from app.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI, POWERBI_SCOPE
+from app.config import (
+    CLIENT_ID,
+    CLIENT_SECRET,
+    TENANT_ID,
+    REDIRECT_URI,
+    POWERBI_SCOPE
+)
 
 router = APIRouter()
 
-REQUIRED_SCOPES = list(set(POWERBI_SCOPE + ["openid", "profile", "User.Read"]))
+# -------------------------------------------------
+# MSAL CONFIGURATION
+# -------------------------------------------------
+AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 
 msal_app = msal.ConfidentialClientApplication(
-    CLIENT_ID,
-    authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-    client_credential=CLIENT_SECRET
+    client_id=CLIENT_ID,
+    client_credential=CLIENT_SECRET,
+    authority=AUTHORITY,
 )
 
+# -------------------------------------------------
+# LOGIN
+# -------------------------------------------------
 @router.get("/login")
 def login(request: Request):
+    # Clear old session
     request.session.clear()
 
     auth_url = msal_app.get_authorization_request_url(
-        scopes=REQUIRED_SCOPES,
+        scopes=POWERBI_SCOPE,
         redirect_uri=REDIRECT_URI
     )
+
     return RedirectResponse(auth_url)
 
+# -------------------------------------------------
+# AUTH CALLBACK
+# -------------------------------------------------
 @router.get("/auth/callback")
 def auth_callback(request: Request, code: str):
 
     token = msal_app.acquire_token_by_authorization_code(
         code=code,
-        scopes=REQUIRED_SCOPES,
-        redirect_uri=REDIRECT_URI,
+        scopes=POWERBI_SCOPE,
+        redirect_uri=REDIRECT_URI
     )
 
     if "access_token" not in token:
-        raise HTTPException(status_code=400, detail=token)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Token acquisition failed",
+                "details": token
+            }
+        )
 
+    # MSAL automatically includes id_token_claims
     claims = token.get("id_token_claims")
     if not claims:
-        raise HTTPException(status_code=400, detail="No id_token_claims returned")
+        raise HTTPException(
+            status_code=400,
+            detail="Missing id_token_claims in token response"
+        )
 
-    user_payload = {
+    # Store in session
+    request.session["access_token"] = token["access_token"]
+    request.session["user"] = {
         "name": claims.get("name"),
         "email": claims.get("preferred_username"),
         "oid": claims.get("oid"),
-        "tenant": claims.get("tid")
+        "tenant_id": claims.get("tid")
     }
 
-    request.session["user"] = user_payload
+    # Debug logs (safe)
+    print("TOKEN KEYS:", token.keys())
+    print("USER SESSION:", request.session["user"])
 
-    encoded_user = quote(json.dumps(user_payload))
-
+    # Redirect to frontend success page
     return RedirectResponse(
-        f"https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success?user={encoded_user}"
+        "https://id-preview--1115fb10-6ea8-4052-8d1b-31238016c02e.lovable.app/powerbi-auth-success"
     )
+
+# -------------------------------------------------
+# LOGOUT
+# -------------------------------------------------
+@router.get("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return {"message": "Logged out successfully"}
