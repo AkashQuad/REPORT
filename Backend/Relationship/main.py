@@ -310,7 +310,6 @@ TEMPLATE_WORKSPACE_ID = os.getenv("TEMPLATE_WORKSPACE_ID")
 TEMPLATE_REPORT_ID = os.getenv("TEMPLATE_REPORT_ID")
 
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-
 TWBX_CONTAINER = os.getenv("TWBX_CONTAINER")
 CSV_CONTAINER = os.getenv("CSV_CONTAINER")
 
@@ -348,9 +347,8 @@ def extract_second_word_table_name(filename: str) -> str:
 
 
 def get_auth_token() -> str:
-    url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
     resp = requests.post(
-        url,
+        f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token",
         data={
             "grant_type": "client_credentials",
             "client_id": CLIENT_ID,
@@ -368,14 +366,11 @@ def download_twbx_from_blob(folder_name: str) -> str:
     )
     container = blob_service.get_container_client(TWBX_CONTAINER)
 
-    twbx_blob_name = f"{folder_name}.twbx"
-    data = container.download_blob(twbx_blob_name).readall()
+    data = container.download_blob(f"{folder_name}.twbx").readall()
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".twbx")
     tmp.write(data)
     tmp.close()
-
-    log.info(f"Downloaded TWBX: {twbx_blob_name}")
     return tmp.name
 
 # ============================================================
@@ -391,17 +386,17 @@ def migrate_static(folder_name: str, target_workspace_id: str):
         token = get_auth_token()
 
         # ----------------------------------------------------
-        # 2. DOWNLOAD TWBX & EXTRACT METADATA
+        # 2. EXTRACT METADATA
         # ----------------------------------------------------
         twbx_path = download_twbx_from_blob(folder_name)
         metadata = extract_metadata_from_twbx(twbx_path)
         os.remove(twbx_path)
 
-        relationships_metadata = metadata.get("relationships", [])
-        log.info("Extracted Tableau relationships")
+        relationships = metadata.get("relationships", [])
+        log.info("Extracted %d relationships", len(relationships))
 
         # ----------------------------------------------------
-        # 3. READ CSVs FROM AZURE BLOB
+        # 3. LOAD CSVs
         # ----------------------------------------------------
         blob_service = BlobServiceClient.from_connection_string(
             AZURE_STORAGE_CONNECTION_STRING
@@ -412,19 +407,20 @@ def migrate_static(folder_name: str, target_workspace_id: str):
         prefix = f"{folder_name.rstrip('/')}/"
 
         for blob in container.list_blobs(name_starts_with=prefix):
-            filename = os.path.basename(blob.name)
-            if not filename.lower().endswith(".csv"):
+            if not blob.name.lower().endswith(".csv"):
                 continue
 
+            filename = os.path.basename(blob.name)
             table_name = extract_second_word_table_name(filename)
+
             data = container.download_blob(blob.name).readall()
             df = pd.read_csv(pd.io.common.BytesIO(data))
 
             blob_tables[table_name] = df
-            log.info(f"Loaded table: {table_name}")
+            log.info("Loaded table %s (%d rows)", table_name, len(df))
 
         # ----------------------------------------------------
-        # 4. CREATE DATASET (TABLES ONLY)
+        # 4. CREATE DATASET (NO RELATIONSHIPS)
         # ----------------------------------------------------
         dataset_payload = {
             "name": f"{REPORT_NAME}_DS",
@@ -432,28 +428,27 @@ def migrate_static(folder_name: str, target_workspace_id: str):
             "tables": [],
         }
 
-        for table_name, df in blob_tables.items():
-            columns = []
-
-            for col in df.columns:
-                if "id" in col.lower():
+        for table, df in blob_tables.items():
+            cols = []
+            for c in df.columns:
+                if "id" in c.lower():
                     dtype, summarize = "Int64", "none"
-                elif df[col].dtype == "float64":
+                elif df[c].dtype == "float64":
                     dtype, summarize = "Double", "sum"
-                elif df[col].dtype == "int64":
+                elif df[c].dtype == "int64":
                     dtype, summarize = "Int64", "sum"
                 else:
                     dtype, summarize = "String", "none"
 
-                columns.append({
-                    "name": col,
+                cols.append({
+                    "name": c,
                     "dataType": dtype,
                     "summarizeBy": summarize,
                 })
 
             dataset_payload["tables"].append({
-                "name": table_name,
-                "columns": columns,
+                "name": table,
+                "columns": cols,
             })
 
         ds_resp = requests.post(
@@ -467,31 +462,42 @@ def migrate_static(folder_name: str, target_workspace_id: str):
         ds_resp.raise_for_status()
 
         dataset_id = ds_resp.json()["id"]
-        log.info(f"Dataset created: {dataset_id}")
+        log.info("Dataset created: %s", dataset_id)
 
         # ----------------------------------------------------
         # 5. PUSH DATA
         # ----------------------------------------------------
         time.sleep(5)
 
-        for table_name, df in blob_tables.items():
-            rows = df.where(pd.notnull(df), None).to_dict(orient="records")
+        for table, df in blob_tables.items():
+            rows = df.where(pd.notnull(df), None).to_dict("records")
 
             for i in range(0, len(rows), 2500):
                 requests.post(
-                    f"{POWERBI_API}/groups/{target_workspace_id}/datasets/{dataset_id}/tables/{table_name}/rows",
+                    f"{POWERBI_API}/groups/{target_workspace_id}/datasets/{dataset_id}/tables/{table}/rows",
                     headers={"Authorization": f"Bearer {token}"},
                     json={"rows": rows[i:i + 2500]},
                 ).raise_for_status()
 
-            log.info(f"Pushed data for table: {table_name}")
+        # ----------------------------------------------------
+        # 6. CREATE RELATIONSHIPS (SAFE + VERIFIED)
+        # ----------------------------------------------------
+        for r in relationships:
+            if (
+                r["fromTable"] not in blob_tables
+                or r["toTable"] not in blob_tables
+                or r["fromColumn"] not in blob_tables[r["fromTable"]].columns
+                or r["toColumn"] not in blob_tables[r["toTable"]].columns
+            ):
+                log.warning(
+                    "Skipping invalid relationship %s.%s -> %s.%s",
+                    r["fromTable"], r["fromColumn"],
+                    r["toTable"], r["toColumn"]
+                )
+                continue
 
-        # ----------------------------------------------------
-        # 6. CREATE RELATIONSHIPS (AFTER DATA PUSH)
-        # ----------------------------------------------------
-        for r in relationships_metadata:
-            rel_payload = {
-                "name": f"{r['fromTable']}_{r['toTable']}",
+            payload = {
+                "name": f"{r['fromTable']}_{r['toTable']}_{r['fromColumn']}",
                 "fromTable": r["fromTable"],
                 "fromColumn": r["fromColumn"],
                 "toTable": r["toTable"],
@@ -499,22 +505,22 @@ def migrate_static(folder_name: str, target_workspace_id: str):
                 "crossFilteringBehavior": "BothDirections",
             }
 
-            rel_resp = requests.post(
+            resp = requests.post(
                 f"{POWERBI_API}/groups/{target_workspace_id}/datasets/{dataset_id}/relationships",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
                 },
-                json=rel_payload,
+                json=payload,
             )
 
-            if rel_resp.status_code not in (200, 201):
-                log.warning(
-                    "Relationship failed %s -> %s : %s",
-                    r["fromTable"], r["toTable"], rel_resp.text
+            if resp.status_code not in (200, 201):
+                log.error("Relationship failed: %s", resp.text)
+            else:
+                log.info(
+                    "Relationship created %s -> %s",
+                    r["fromTable"], r["toTable"]
                 )
-
-        log.info("Relationships created")
 
         # ----------------------------------------------------
         # 7. CLONE REPORT
