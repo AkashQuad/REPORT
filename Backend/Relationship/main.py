@@ -292,7 +292,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 
-# ✅ Import extractor (used only for metadata read, not relationships)
+# Import extractor (metadata only)
 from extractor import extract_metadata_from_twbx
 
 # ============================================================
@@ -342,10 +342,14 @@ app.add_middleware(
 # ============================================================
 
 def extract_second_word_table_name(filename: str) -> str:
+    """
+    Preserves original casing
+    Example: Extract_Customers.csv_HASH → Customers
+    """
     base = filename.split(".csv")[0]
     parts = base.split("_")
     table_name = parts[1] if len(parts) >= 2 else parts[0]
-    return re.sub(r"[^a-zA-Z]", "", table_name).lower()
+    return re.sub(r"[^a-zA-Z]", "", table_name)  # ❌ no lower()
 
 
 def get_auth_token() -> str:
@@ -395,11 +399,12 @@ def migrate_static(folder_name: str, target_workspace_id: str):
         token = get_auth_token()
 
         # ----------------------------------------------------
-        # 2. DOWNLOAD TWBX (METADATA EXTRACTION ONLY)
+        # 2. DOWNLOAD TWBX (METADATA ONLY)
         # ----------------------------------------------------
         twbx_path = download_twbx_from_blob(folder_name)
-        extract_metadata_from_twbx(twbx_path)  # relationships ignored
+        extract_metadata_from_twbx(twbx_path)
         os.remove(twbx_path)
+
         log.info("TWBX metadata extracted")
 
         # ----------------------------------------------------
@@ -422,11 +427,11 @@ def migrate_static(folder_name: str, target_workspace_id: str):
             table_name = extract_second_word_table_name(filename)
             data = container.download_blob(blob.name).readall()
 
-            blob_tables[table_name] = pd.read_csv(
-                pd.io.common.BytesIO(data)
-            )
+            df = pd.read_csv(pd.io.common.BytesIO(data))
+            blob_tables[table_name] = df
 
             log.info(f"Loaded table: {table_name}")
+            log.info(f"Columns: {list(df.columns)}")
 
         # ----------------------------------------------------
         # 4. DEFINE DATASET (NO RELATIONSHIPS)
@@ -451,13 +456,13 @@ def migrate_static(folder_name: str, target_workspace_id: str):
                     dtype, summarize = "String", "none"
 
                 columns.append({
-                    "name": col,
+                    "name": col,          # ✅ exact column name
                     "dataType": dtype,
                     "summarizeBy": summarize,
                 })
 
             dataset_payload["tables"].append({
-                "name": table_name,
+                "name": table_name,      # ✅ exact table name
                 "columns": columns,
             })
 
@@ -519,7 +524,7 @@ def migrate_static(folder_name: str, target_workspace_id: str):
             "status": "SUCCESS",
             "dataset_id": dataset_id,
             "report_id": clone_resp.json()["id"],
-            "message": "Dataset created, data pushed, report cloned successfully",
+            "message": "Dataset created with original table/column casing",
         }
 
     except Exception as e:
