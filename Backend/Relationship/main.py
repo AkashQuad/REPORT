@@ -292,7 +292,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 
-# Import extractor (metadata only)
 from extractor import extract_metadata_from_twbx
 
 # ============================================================
@@ -342,19 +341,14 @@ app.add_middleware(
 # ============================================================
 
 def extract_second_word_table_name(filename: str) -> str:
-    """
-    Preserves original casing
-    Example: Extract_Customers.csv_HASH → Customers
-    """
     base = filename.split(".csv")[0]
     parts = base.split("_")
     table_name = parts[1] if len(parts) >= 2 else parts[0]
-    return re.sub(r"[^a-zA-Z]", "", table_name)  # ❌ no lower()
+    return re.sub(r"[^a-zA-Z]", "", table_name)
 
 
 def get_auth_token() -> str:
     url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
-
     resp = requests.post(
         url,
         data={
@@ -375,16 +369,14 @@ def download_twbx_from_blob(folder_name: str) -> str:
     container = blob_service.get_container_client(TWBX_CONTAINER)
 
     twbx_blob_name = f"{folder_name}.twbx"
+    data = container.download_blob(twbx_blob_name).readall()
 
-    try:
-        data = container.download_blob(twbx_blob_name).readall()
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".twbx")
-        tmp.write(data)
-        tmp.close()
-        log.info(f"Downloaded TWBX: {twbx_blob_name}")
-        return tmp.name
-    except Exception:
-        raise Exception(f"TWBX file not found: {twbx_blob_name}")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".twbx")
+    tmp.write(data)
+    tmp.close()
+
+    log.info(f"Downloaded TWBX: {twbx_blob_name}")
+    return tmp.name
 
 # ============================================================
 # MIGRATION API
@@ -399,13 +391,14 @@ def migrate_static(folder_name: str, target_workspace_id: str):
         token = get_auth_token()
 
         # ----------------------------------------------------
-        # 2. DOWNLOAD TWBX (METADATA ONLY)
+        # 2. DOWNLOAD TWBX & EXTRACT METADATA
         # ----------------------------------------------------
         twbx_path = download_twbx_from_blob(folder_name)
-        extract_metadata_from_twbx(twbx_path)
+        metadata = extract_metadata_from_twbx(twbx_path)
         os.remove(twbx_path)
 
-        log.info("TWBX metadata extracted")
+        relationships_metadata = metadata.get("relationships", [])
+        log.info("Extracted Tableau relationships")
 
         # ----------------------------------------------------
         # 3. READ CSVs FROM AZURE BLOB
@@ -420,21 +413,18 @@ def migrate_static(folder_name: str, target_workspace_id: str):
 
         for blob in container.list_blobs(name_starts_with=prefix):
             filename = os.path.basename(blob.name)
-
             if not filename.lower().endswith(".csv"):
                 continue
 
             table_name = extract_second_word_table_name(filename)
             data = container.download_blob(blob.name).readall()
-
             df = pd.read_csv(pd.io.common.BytesIO(data))
-            blob_tables[table_name] = df
 
+            blob_tables[table_name] = df
             log.info(f"Loaded table: {table_name}")
-            log.info(f"Columns: {list(df.columns)}")
 
         # ----------------------------------------------------
-        # 4. DEFINE DATASET (NO RELATIONSHIPS)
+        # 4. CREATE DATASET (TABLES ONLY)
         # ----------------------------------------------------
         dataset_payload = {
             "name": f"{REPORT_NAME}_DS",
@@ -456,19 +446,16 @@ def migrate_static(folder_name: str, target_workspace_id: str):
                     dtype, summarize = "String", "none"
 
                 columns.append({
-                    "name": col,          # ✅ exact column name
+                    "name": col,
                     "dataType": dtype,
                     "summarizeBy": summarize,
                 })
 
             dataset_payload["tables"].append({
-                "name": table_name,      # ✅ exact table name
+                "name": table_name,
                 "columns": columns,
             })
 
-        # ----------------------------------------------------
-        # 5. CREATE DATASET
-        # ----------------------------------------------------
         ds_resp = requests.post(
             f"{POWERBI_API}/groups/{target_workspace_id}/datasets",
             headers={
@@ -477,22 +464,18 @@ def migrate_static(folder_name: str, target_workspace_id: str):
             },
             json=dataset_payload,
         )
-
-        log.error("Dataset Create Status: %s", ds_resp.status_code)
-        log.error("Dataset Create Response: %s", ds_resp.text)
         ds_resp.raise_for_status()
 
         dataset_id = ds_resp.json()["id"]
         log.info(f"Dataset created: {dataset_id}")
 
         # ----------------------------------------------------
-        # 6. PUSH DATA
+        # 5. PUSH DATA
         # ----------------------------------------------------
         time.sleep(5)
 
         for table_name, df in blob_tables.items():
-            df_clean = df.where(pd.notnull(df), None)
-            rows = df_clean.to_dict(orient="records")
+            rows = df.where(pd.notnull(df), None).to_dict(orient="records")
 
             for i in range(0, len(rows), 2500):
                 requests.post(
@@ -501,7 +484,37 @@ def migrate_static(folder_name: str, target_workspace_id: str):
                     json={"rows": rows[i:i + 2500]},
                 ).raise_for_status()
 
-            log.info(f"Pushed {len(rows)} rows into {table_name}")
+            log.info(f"Pushed data for table: {table_name}")
+
+        # ----------------------------------------------------
+        # 6. CREATE RELATIONSHIPS (AFTER DATA PUSH)
+        # ----------------------------------------------------
+        for r in relationships_metadata:
+            rel_payload = {
+                "name": f"{r['fromTable']}_{r['toTable']}",
+                "fromTable": r["fromTable"],
+                "fromColumn": r["fromColumn"],
+                "toTable": r["toTable"],
+                "toColumn": r["toColumn"],
+                "crossFilteringBehavior": "BothDirections",
+            }
+
+            rel_resp = requests.post(
+                f"{POWERBI_API}/groups/{target_workspace_id}/datasets/{dataset_id}/relationships",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=rel_payload,
+            )
+
+            if rel_resp.status_code not in (200, 201):
+                log.warning(
+                    "Relationship failed %s -> %s : %s",
+                    r["fromTable"], r["toTable"], rel_resp.text
+                )
+
+        log.info("Relationships created")
 
         # ----------------------------------------------------
         # 7. CLONE REPORT
@@ -515,16 +528,13 @@ def migrate_static(folder_name: str, target_workspace_id: str):
                 "targetModelId": dataset_id,
             },
         )
-
-        log.error("Report Clone Status: %s", clone_resp.status_code)
-        log.error("Report Clone Response: %s", clone_resp.text)
         clone_resp.raise_for_status()
 
         return {
             "status": "SUCCESS",
             "dataset_id": dataset_id,
             "report_id": clone_resp.json()["id"],
-            "message": "Dataset created with original table/column casing",
+            "message": "Dataset, data, relationships and report created successfully",
         }
 
     except Exception as e:
