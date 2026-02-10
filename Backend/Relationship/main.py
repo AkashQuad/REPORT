@@ -227,6 +227,8 @@ def migrate_static(folder_name: str, target_workspace_id: str):
             headers={"Authorization": f"Bearer {token}"},
             json=dataset_payload,
         )
+        print("Power BI Dataset Create Status:", ds_resp.status_code)
+        print("Power BI Dataset Create Body:", ds_resp.text)
         ds_resp.raise_for_status()
 
         dataset_id = ds_resp.json()["id"]
