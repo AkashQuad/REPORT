@@ -244,21 +244,61 @@ def generate_embed_token(data: EmbedRequest):
 
 
     
+# @app.post("/runtime-visuals")
+# def generate_runtime_visuals(req: RuntimeVisualsRequest):
+#     try:
+#         # 1. Read metadata from Blob
+#         metadata = read_metadata_from_blob(req.metadataBlobPath)
+#         worksheets = extract_worksheets(metadata)
+
+#         if not worksheets:
+#             raise ValueError("No worksheets found in metadata")
+
+#         runtime_visuals = {"visuals": []}
+
+#         # 2. Iterate and Build Visuals
+#         for i, ws in enumerate(worksheets):
+#             # Dynamic Table Selection logic
+#             current_table_name = ws.get("tableName") or ws.get("table")
+            
+#             if not current_table_name and ws.get("columns"):
+#                 current_table_name = ws["columns"][0].get("table")
+            
+#             if not current_table_name:
+#                 current_table_name = "fact_sales"
+
+#             pos = next_position(i)
+#             visual_json = generate_visual(ws, current_table_name, pos["x"], pos["y"])
+#             runtime_visuals["visuals"].append(visual_json)
+
+#         return runtime_visuals
+
+#     except Exception as e:
+#         print(f"Error generating visuals: {str(e)}")
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @app.post("/runtime-visuals")
 def generate_runtime_visuals(req: RuntimeVisualsRequest):
     try:
         # 1. Read metadata from Blob
         metadata = read_metadata_from_blob(req.metadataBlobPath)
         worksheets = extract_worksheets(metadata)
+        
+        # NEW: Extract dashboard mapping from metadata
+        dashboards = metadata.get("dashboards", [])
 
         if not worksheets:
             raise ValueError("No worksheets found in metadata")
 
-        runtime_visuals = {"visuals": []}
+        runtime_visuals = {
+            "visuals": [],
+            "dashboards": dashboards  # Ensure dashboards are passed to frontend
+        }
 
         # 2. Iterate and Build Visuals
         for i, ws in enumerate(worksheets):
-            # Dynamic Table Selection logic
             current_table_name = ws.get("tableName") or ws.get("table")
             
             if not current_table_name and ws.get("columns"):
@@ -276,7 +316,5 @@ def generate_runtime_visuals(req: RuntimeVisualsRequest):
     except Exception as e:
         print(f"Error generating visuals: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
 
 
