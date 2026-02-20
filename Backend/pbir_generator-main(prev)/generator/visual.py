@@ -163,8 +163,6 @@
 #----------------------------------added excel
 
 
-
-
 # visual_generator.py
 
 import pandas as pd
@@ -173,59 +171,54 @@ from io import BytesIO
 
 """
 Full visual generation module
-- Fetches Tableau -> Power BI visual mapping from public Google Drive Excel
+- Fetches Tableau -> Power BI visual mapping from public Google Sheet
 - Caches mapping for performance
-- Safe fallbacks & Correct bindings
+- Supports ALL Power BI visual types and their specific data binding rules
 """
 
-# Replace this with your actual Google Drive File ID
-GOOGLE_DRIVE_FILE_ID = "YOUR_FILE_ID_HERE" 
+# ✅ Your exact Google Sheet File ID
+GOOGLE_DRIVE_FILE_ID = "1wDJUMRudC_qZnK69jhxmIuq72JZE8IJvA9LNyA9BRYw" 
 
-# Memory cache so we don't download the Excel file on every single API call
 _MAPPING_CACHE = {}
 
 def get_mapping_dictionary() -> dict:
     """
-    Downloads the Excel file from Google Drive and converts it to a dictionary.
-    Caches the result after the first successful download.
+    Downloads the Google Sheet, converts it to a dictionary, and caches it.
     """
     global _MAPPING_CACHE
     
-    # Return from cache if we already downloaded it
     if _MAPPING_CACHE:
         return _MAPPING_CACHE
 
     try:
-        # Construct the direct download URL for Google Drive
-        download_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}&export=download"
+        # ✅ Correct URL format for exporting a Google Sheet as an Excel file
+        download_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_DRIVE_FILE_ID}/export?format=xlsx"
         
         response = requests.get(download_url)
         response.raise_for_status()
         
-        # Read the Excel file into a pandas DataFrame
+        # Read the downloaded bytes into pandas
         df = pd.read_excel(BytesIO(response.content))
-        
-        # Clean column names to ensure no leading/trailing spaces mess up the dictionary
         df.columns = df.columns.str.strip()
         
-        # Create a dictionary: {'tableau type': 'power bi type'}
-        # We lowercase the Tableau Type to make lookups case-insensitive
+        # Create mapping dictionary mapping Tableau Type -> Power BI Type
         mapping_dict = dict(zip(
             df['Tableau Type'].astype(str).str.strip().str.lower(), 
             df['Power BI Type'].astype(str).str.strip()
         ))
         
         _MAPPING_CACHE = mapping_dict
-        print("✅ Visual mapping successfully loaded from Google Drive!")
+        print("✅ Visual mapping successfully loaded from Google Sheets!")
         return _MAPPING_CACHE
         
     except Exception as e:
-        print(f"❌ Failed to load Excel mapping from Drive: {e}")
-        # Return a safe fallback dictionary if the download fails
+        print(f"❌ Failed to load mapping from Google Sheets: {e}")
+        # Core fallback dictionary in case the network fails
         return {
             "table": "table",
-            "text table": "table",
-            "bar chart": "barChart",
+            "bar chart": "clusteredBarChart",
+            "column chart": "clusteredColumnChart",
+            "line chart": "lineChart",
             "pie chart": "pieChart"
         }
 
@@ -235,10 +228,8 @@ def generate_visual(ws: dict, table_name: str, x: int, y: int) -> dict:
     """
     Generate a Power BI visual definition from Tableau worksheet JSON
     """
-    # 1. Get the dynamic mapping
     visual_map = get_mapping_dictionary()
 
-    # 2. Normalize incoming visual type
     tableau_type = (
         ws.get("visualType")
         or ws.get("type")
@@ -247,16 +238,18 @@ def generate_visual(ws: dict, table_name: str, x: int, y: int) -> dict:
         or "table"
     ).strip().lower()
 
-    # 3. Lookup in our Excel-generated dictionary (fallback to "table")
+    # Lookup mapped type, fallback to table if not found
     visual_type = visual_map.get(tableau_type, "table")
 
     columns = ws.get("columns", []) or []
 
     width = 500
     height = 300
+    bindings = {}
 
-    # ------------------ Bindings ------------------
+    # ------------------ Dynamic Bindings Logic ------------------
 
+    # 1. Standard Table (List of values)
     if visual_type == "table":
         bindings = {
             "Values": [
@@ -266,55 +259,83 @@ def generate_visual(ws: dict, table_name: str, x: int, y: int) -> dict:
         }
         height = 350
 
-    elif visual_type in (
-        "barChart",
-        "columnChart",
-        "stackedBarChart",
-        "stackedColumnChart",
-        "lineChart",
-        "areaChart",
-        "stackedAreaChart"
-    ):
-        bindings = {
-            "Category": {
-                "table": columns[0].get("table", table_name),
-                "column": columns[0].get("column")
-            } if len(columns) > 0 else {"table": table_name, "column": "Category"},
-            
-            "Values": {
-                "table": columns[1].get("table", table_name),
-                "column": columns[1].get("column")
-            } if len(columns) > 1 else {"table": table_name, "column": "Value"}
-        }
-
-    elif visual_type in ("pieChart", "donutChart"):
-        bindings = {
-            "Legend": {
-                "table": columns[0].get("table", table_name),
-                "column": columns[0].get("column")
-            } if len(columns) > 0 else {"table": table_name, "column": "Legend"},
-            
-            "Values": {
-                "table": columns[1].get("table", table_name),
-                "column": columns[1].get("column")
-            } if len(columns) > 1 else {"table": table_name, "column": "Value"}
-        }
-
+    # 2. Matrix (Rows and Values)
     elif visual_type == "matrix":
         bindings = {
             "Rows": {
-                "table": columns[0].get("table", table_name),
-                "column": columns[0].get("column")
+                "table": columns[0].get("table", table_name), "column": columns[0].get("column")
             } if len(columns) > 0 else {"table": table_name, "column": "Row"},
-            
             "Values": {
-                "table": columns[1].get("table", table_name),
-                "column": columns[1].get("column")
+                "table": columns[1].get("table", table_name), "column": columns[1].get("column")
             } if len(columns) > 1 else {"table": table_name, "column": "Value"}
         }
 
+    # 3. Standard Charts (Category on Axis, Values on Y)
+    elif visual_type in (
+        "clusteredBarChart", "stackedBarChart", "100StackedBarChart",
+        "clusteredColumnChart", "stackedColumnChart", "100StackedColumnChart",
+        "lineChart", "areaChart", "stackedAreaChart", 
+        "waterfallChart", "funnel", "treemap"
+    ):
+        bindings = {
+            "Category": {
+                "table": columns[0].get("table", table_name), "column": columns[0].get("column")
+            } if len(columns) > 0 else {"table": table_name, "column": "Category"},
+            "Values": {
+                "table": columns[1].get("table", table_name), "column": columns[1].get("column")
+            } if len(columns) > 1 else {"table": table_name, "column": "Value"}
+        }
+
+    # 4. Circular Charts (Legend and Values)
+    elif visual_type in ("pieChart", "donutChart"):
+        bindings = {
+            "Legend": {
+                "table": columns[0].get("table", table_name), "column": columns[0].get("column")
+            } if len(columns) > 0 else {"table": table_name, "column": "Legend"},
+            "Values": {
+                "table": columns[1].get("table", table_name), "column": columns[1].get("column")
+            } if len(columns) > 1 else {"table": table_name, "column": "Value"}
+        }
+
+    # 5. Scatter Charts (Category, X Axis, Y Axis)
+    elif visual_type == "scatterChart":
+        bindings = {
+            "X": {
+                "table": columns[0].get("table", table_name), "column": columns[0].get("column")
+            } if len(columns) > 0 else {"table": table_name, "column": "X"},
+            "Y": {
+                "table": columns[1].get("table", table_name), "column": columns[1].get("column")
+            } if len(columns) > 1 else {"table": table_name, "column": "Y"}
+        }
+        # If there's a 3rd column, use it as the Category/Detail
+        if len(columns) > 2:
+            bindings["Category"] = {
+                "table": columns[2].get("table", table_name), "column": columns[2].get("column")
+            }
+
+    # 6. Single Value Visuals (Card, KPI, Gauge)
+    elif visual_type in ("card", "kpi", "gauge"):
+        bindings = {
+            "Values": {
+                "table": columns[0].get("table", table_name), "column": columns[0].get("column")
+            } if len(columns) > 0 else {"table": table_name, "column": "Value"}
+        }
+        height = 150
+        width = 250
+
+    # 7. Maps (Category/Location and Values)
+    elif visual_type in ("map", "filledMap"):
+        bindings = {
+            "Category": {  
+                "table": columns[0].get("table", table_name), "column": columns[0].get("column")
+            } if len(columns) > 0 else {"table": table_name, "column": "Location"},
+            "Values": {
+                "table": columns[1].get("table", table_name), "column": columns[1].get("column")
+            } if len(columns) > 1 else {"table": table_name, "column": "Value"}
+        }
+
+    # Fallback Catch-all
     else:
-        # Final safety fallback
         visual_type = "table"
         bindings = {
             "Values": [
