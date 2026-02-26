@@ -164,10 +164,93 @@
 
 
 
+# import os
+# import json
+# import requests
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# from dotenv import load_dotenv
+# from msal import ConfidentialClientApplication
+
+# # 1. IMPORT THE GENERATOR FUNCTIONS
+# from blob_reader import read_metadata_from_blob, extract_worksheets
+# from generator.dataset import generate_dataset_model
+# from generator.visual import generate_visual
+# from generator.layout import next_position
+
+# load_dotenv()
+
+# # ENV Config
+# TENANT_ID = os.getenv("TENANT_ID")
+# CLIENT_ID = os.getenv("CLIENT_ID")
+# CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+# AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+# SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
+
+# app = FastAPI()
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# class EmbedRequest(BaseModel):
+#     workspaceId: str
+#     reportId: str
+#     datasetId: str
+
+# class RuntimeVisualsRequest(BaseModel):
+#     metadataBlobPath: str
+
+# def get_access_token() -> str:
+#     app_auth = ConfidentialClientApplication(
+#         CLIENT_ID,
+#         authority=AUTHORITY,
+#         client_credential=CLIENT_SECRET
+#     )
+#     token = app_auth.acquire_token_for_client(scopes=SCOPE)
+#     return token["access_token"]
+
+# @app.post("/embed-token")
+# def generate_embed_token(data: EmbedRequest):
+#     try:
+#         access_token = get_access_token()
+#         headers = {
+#             "Authorization": f"Bearer {access_token}",
+#             "Content-Type": "application/json"
+#         }
+#         token_url = f"https://api.powerbi.com/v1.0/myorg/groups/{data.workspaceId}/reports/{data.reportId}/GenerateToken"
+#         payload = {
+#             "accessLevel": "Edit",
+#             "allowSaveAs": True,
+#             "datasets": [{"id": data.datasetId}]
+#         }
+#         token_res = requests.post(token_url, headers=headers, json=payload)
+#         if token_res.status_code != 200:
+#             raise HTTPException(status_code=token_res.status_code, detail=token_res.text)
+#         token_json = token_res.json()
+#         return {
+#             "embedToken": token_json["token"],
+#             "embedUrl": f"https://app.powerbi.com/reportEmbed?reportId={data.reportId}&groupId={data.workspaceId}",
+#             "datasetId": data.datasetId
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+# -------------------------------------------------------------------------------
+    
+
+
 import os
 import json
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials # NEW IMPORTS
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -198,6 +281,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Set up Bearer token extraction
+security = HTTPBearer()
+
 class EmbedRequest(BaseModel):
     workspaceId: str
     reportId: str
@@ -206,44 +292,73 @@ class EmbedRequest(BaseModel):
 class RuntimeVisualsRequest(BaseModel):
     metadataBlobPath: str
 
-def get_access_token() -> str:
+# UPDATED: Now requires the frontend user token as an argument
+def get_obo_access_token(user_token: str) -> str:
     app_auth = ConfidentialClientApplication(
         CLIENT_ID,
         authority=AUTHORITY,
         client_credential=CLIENT_SECRET
     )
-    token = app_auth.acquire_token_for_client(scopes=SCOPE)
-    return token["access_token"]
+    
+    # NEW: Exchange the frontend user's token for a Power BI token
+    result = app_auth.acquire_token_on_behalf_of(
+        user_assertion=user_token,
+        scopes=SCOPE
+    )
+    
+    if "access_token" in result:
+        return result["access_token"]
+    else:
+        # Log the exact error from Azure for easier debugging
+        error_msg = result.get("error_description", "Unknown error in OBO flow")
+        raise HTTPException(status_code=401, detail=f"Failed to acquire OBO token: {error_msg}")
 
+# UPDATED: Added `auth` dependency to require a token from the frontend
 @app.post("/embed-token")
-def generate_embed_token(data: EmbedRequest):
+def generate_embed_token(data: EmbedRequest, auth: HTTPAuthorizationCredentials = Security(security)):
     try:
-        access_token = get_access_token()
+        # Extract the Bearer token sent by the frontend
+        frontend_user_token = auth.credentials
+        
+        # Get the Power BI token on behalf of the user
+        access_token = get_obo_access_token(frontend_user_token)
+        
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
+        
         token_url = f"https://api.powerbi.com/v1.0/myorg/groups/{data.workspaceId}/reports/{data.reportId}/GenerateToken"
         payload = {
             "accessLevel": "Edit",
             "allowSaveAs": True,
             "datasets": [{"id": data.datasetId}]
         }
+        
         token_res = requests.post(token_url, headers=headers, json=payload)
+        
         if token_res.status_code != 200:
             raise HTTPException(status_code=token_res.status_code, detail=token_res.text)
+            
         token_json = token_res.json()
+        
         return {
             "embedToken": token_json["token"],
             "embedUrl": f"https://app.powerbi.com/reportEmbed?reportId={data.reportId}&groupId={data.workspaceId}",
             "datasetId": data.datasetId
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+# ... (Your /runtime-visuals endpoint remains exactly the same) ...
+
+# --------------------------------------------------------------------------------------------------------------
 
 
-    
+
+
 # @app.post("/runtime-visuals")
 # def generate_runtime_visuals(req: RuntimeVisualsRequest):
 #     try:
@@ -276,6 +391,7 @@ def generate_embed_token(data: EmbedRequest):
 #     except Exception as e:
 #         print(f"Error generating visuals: {str(e)}")
 #         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 
