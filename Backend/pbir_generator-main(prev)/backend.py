@@ -297,43 +297,26 @@ def get_access_token() -> str:
     token = app_auth.acquire_token_for_client(scopes=SCOPE)
     return token["access_token"]
 
-# NEW: Function to exchange the frontend user's token for a Power BI token
-def get_obo_access_token(user_token: str) -> str:
-    app_auth = ConfidentialClientApplication(
-        CLIENT_ID,
-        authority=AUTHORITY,
-        client_credential=CLIENT_SECRET
-    )
-    
-    # Exchanging the token
-    result = app_auth.acquire_token_on_behalf_of(
-        user_assertion=user_token,
-        scopes=SCOPE
-    )
-    
-    if "access_token" in result:
-        return result["access_token"]
-    else:
-        error_msg = result.get("error_description", "Unknown error in OBO flow")
-        raise HTTPException(status_code=401, detail=f"Failed to acquire OBO token: {error_msg}")
-
-# CHANGED: Endpoint now pulls the token directly from `data.userToken`
+# CHANGED: We don't need OBO anymore! The token from the frontend is already valid for Power BI.
 @app.post("/embed-token")
 def generate_embed_token(data: EmbedRequest):
     try:
-        # Use the token passed in the JSON body
-        access_token = get_obo_access_token(data.userToken)
+        # The userToken from sessionStorage IS your Power BI access token!
+        access_token = data.userToken 
         
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
+        
         token_url = f"https://api.powerbi.com/v1.0/myorg/groups/{data.workspaceId}/reports/{data.reportId}/GenerateToken"
         payload = {
             "accessLevel": "Edit",
             "allowSaveAs": True,
             "datasets": [{"id": data.datasetId}]
         }
+        
+        # Send the request directly to Power BI using the user's token
         token_res = requests.post(token_url, headers=headers, json=payload)
         
         if token_res.status_code != 200:
@@ -350,8 +333,6 @@ def generate_embed_token(data: EmbedRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 
 
 
