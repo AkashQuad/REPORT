@@ -164,6 +164,85 @@
 
 
 
+# import os
+# import json
+# import requests
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# from dotenv import load_dotenv
+# from msal import ConfidentialClientApplication
+
+# # 1. IMPORT THE GENERATOR FUNCTIONS
+# from blob_reader import read_metadata_from_blob, extract_worksheets
+# from generator.dataset import generate_dataset_model
+# from generator.visual import generate_visual
+# from generator.layout import next_position
+
+# load_dotenv()
+
+# # ENV Config
+# TENANT_ID = os.getenv("TENANT_ID")
+# CLIENT_ID = os.getenv("CLIENT_ID")
+# CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+# AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+# SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
+
+# app = FastAPI()
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# class EmbedRequest(BaseModel):
+#     workspaceId: str
+#     reportId: str
+#     datasetId: str
+
+# class RuntimeVisualsRequest(BaseModel):
+#     metadataBlobPath: str
+
+# def get_access_token() -> str:
+#     app_auth = ConfidentialClientApplication(
+#         CLIENT_ID,
+#         authority=AUTHORITY,
+#         client_credential=CLIENT_SECRET
+#     )
+#     token = app_auth.acquire_token_for_client(scopes=SCOPE)
+#     return token["access_token"]
+
+# @app.post("/embed-token")
+# def generate_embed_token(data: EmbedRequest):
+#     try:
+#         access_token = get_access_token()
+#         headers = {
+#             "Authorization": f"Bearer {access_token}",
+#             "Content-Type": "application/json"
+#         }
+#         token_url = f"https://api.powerbi.com/v1.0/myorg/groups/{data.workspaceId}/reports/{data.reportId}/GenerateToken"
+#         payload = {
+#             "accessLevel": "Edit",
+#             "allowSaveAs": True,
+#             "datasets": [{"id": data.datasetId}]
+#         }
+#         token_res = requests.post(token_url, headers=headers, json=payload)
+#         if token_res.status_code != 200:
+#             raise HTTPException(status_code=token_res.status_code, detail=token_res.text)
+#         token_json = token_res.json()
+#         return {
+#             "embedToken": token_json["token"],
+#             "embedUrl": f"https://app.powerbi.com/reportEmbed?reportId={data.reportId}&groupId={data.workspaceId}",
+#             "datasetId": data.datasetId
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 import os
 import json
 import requests
@@ -198,14 +277,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# CHANGED: Added userToken to the expected JSON payload
 class EmbedRequest(BaseModel):
     workspaceId: str
     reportId: str
     datasetId: str
+    userToken: str 
 
 class RuntimeVisualsRequest(BaseModel):
     metadataBlobPath: str
 
+# KEPT EXISTING: Your original Service Principal token function
 def get_access_token() -> str:
     app_auth = ConfidentialClientApplication(
         CLIENT_ID,
@@ -215,10 +297,33 @@ def get_access_token() -> str:
     token = app_auth.acquire_token_for_client(scopes=SCOPE)
     return token["access_token"]
 
+# NEW: Function to exchange the frontend user's token for a Power BI token
+def get_obo_access_token(user_token: str) -> str:
+    app_auth = ConfidentialClientApplication(
+        CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=CLIENT_SECRET
+    )
+    
+    # Exchanging the token
+    result = app_auth.acquire_token_on_behalf_of(
+        user_assertion=user_token,
+        scopes=SCOPE
+    )
+    
+    if "access_token" in result:
+        return result["access_token"]
+    else:
+        error_msg = result.get("error_description", "Unknown error in OBO flow")
+        raise HTTPException(status_code=401, detail=f"Failed to acquire OBO token: {error_msg}")
+
+# CHANGED: Endpoint now pulls the token directly from `data.userToken`
 @app.post("/embed-token")
 def generate_embed_token(data: EmbedRequest):
     try:
-        access_token = get_access_token()
+        # Use the token passed in the JSON body
+        access_token = get_obo_access_token(data.userToken)
+        
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
@@ -230,16 +335,26 @@ def generate_embed_token(data: EmbedRequest):
             "datasets": [{"id": data.datasetId}]
         }
         token_res = requests.post(token_url, headers=headers, json=payload)
+        
         if token_res.status_code != 200:
             raise HTTPException(status_code=token_res.status_code, detail=token_res.text)
+            
         token_json = token_res.json()
+        
         return {
             "embedToken": token_json["token"],
             "embedUrl": f"https://app.powerbi.com/reportEmbed?reportId={data.reportId}&groupId={data.workspaceId}",
             "datasetId": data.datasetId
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
 
 
 
